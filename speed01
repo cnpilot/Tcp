@@ -1,0 +1,1337 @@
+#!/bin/bash
+#
+# Author: Aniverse
+# https://github.com/Aniverse/TrCtrlProToc0l
+#
+# bash -c "$(wget --no-check-certificate -qO- https://github.com/Aniverse/TrCtrlProToc0l/raw/master/A)"
+# bash <(curl -s https://raw.githubusercontent.com/Aniverse/TrCtrlProToc0l/master/A)
+#
+# https://github.com/FunctionClub/YankeeBBR
+# https://sometimesnaive.org/article/linux/bash/tcp_nanqinlang
+# https://moeclub.org/2017/06/06/249/
+# https://moeclub.org/2017/03/08/14/
+# https://www.94ish.me/1635.html
+# http://xiaofd.win/onekey-ruisu.html
+# https://teddysun.com/489.html
+
+ScriptVersion=2.4.8
+ScriptDate=2019.04.15
+
+# 颜色 -----------------------------------------------------------------------------------
+
+black=$(tput setaf 0); red=$(tput setaf 1); green=$(tput setaf 2); yellow=$(tput setaf 3);
+blue=$(tput setaf 4); magenta=$(tput setaf 5); cyan=$(tput setaf 6); white=$(tput setaf 7);
+on_red=$(tput setab 1); on_green=$(tput setab 2); on_yellow=$(tput setab 3); on_blue=$(tput setab 4);
+on_magenta=$(tput setab 5); on_cyan=$(tput setab 6); on_white=$(tput setab 7); bold=$(tput bold);
+dim=$(tput dim); underline=$(tput smul); reset_underline=$(tput rmul); standout=$(tput smso);
+reset_standout=$(tput rmso); normal=$(tput sgr0); alert=${white}${on_red}; title=${standout};
+baihuangse=${white}${on_yellow}; bailanse=${white}${on_blue}; bailvse=${white}${on_green};
+baiqingse=${white}${on_cyan}; baihongse=${white}${on_red}; baizise=${white}${on_magenta};
+heibaise=${black}${on_white}; jiacu=${normal}${bold}
+shanshuo=$(tput blink); wuguangbiao=$(tput civis); guangbiao=$(tput cnorm)
+
+### 是否为 IPv4 地址(其实也不一定是) ###
+function isValidIpAddress() { echo $1 | grep -qE '^[0-9][0-9]?[0-9]?\.[0-9][0-9]?[0-9]?\.[0-9][0-9]?[0-9]?\.[0-9][0-9]?[0-9]?$' ; }
+
+### 是否为内网 IPv4 地址 ###
+function isInternalIpAddress() { echo $1 | grep -qE '(192\.168\.((\d{1,2})|(1\d{2})|(2[0-4]\d)|(25[0-5]))\.((\d{1,2})$|(1\d{2})$|(2[0-4]\d)$|(25[0-5])$))|(172\.((1[6-9])|(2\d)|(3[0-1]))\.((\d{1,2})|(1\d{2})|(2[0-4]\d)|(25[0-5]))\.((\d{1,2})$|(1\d{2})$|(2[0-4]\d)$|(25[0-5])$))|(10\.((\d{1,2})|(1\d{2})|(2[0-4]\d)|(25[0-5]))\.((\d{1,2})|(1\d{2})|(2[0-4]\d)|(25[0-5]))\.((\d{1,2})$|(1\d{2})$|(2[0-4]\d)$|(25[0-5])$))' ; }
+
+#  -----------------------------------------------------------------------------------
+
+cancel() { echo -e "${normal}"
+rm -f /tmp/system_kernel_list /log/kernel_tobe_del_list
+exit ; }
+trap cancel SIGINT
+
+# Outputs="/dev/null"
+export DEBIAN_FRONTEND=noninteractive
+SETUPDATE=$(date "+%Y.%m.%d.%H:%M:%S")
+SysSupport=0 ; DeBUG=0 ; Outputs="/log/tcp.$SETUPDATE.log"
+[[ $1 == -d ]] && DeBUG=1
+
+KernelBit=` getconf LONG_BIT `
+[[ $KernelBit == 32 ]] && KernelBitVer=i386 ; [[ $KernelBit == 64 ]] && KernelBitVer=amd64
+DISTRO=`  awk -F'[= "]' '/PRETTY_NAME/{print $3}' /etc/os-release | tr 'A-Z' 'a-z'  `
+DISTROU=`  awk -F'[= "]' '/PRETTY_NAME/{print $3}' /etc/os-release  `
+CODENAME=`  cat /etc/os-release | grep VERSION= | tr '[A-Z]' '[a-z]' | sed 's/\"\|(\|)\|[0-9.,]\|version\|lts//g' | awk '{print $2}'  `
+[[ $DISTRO == ubuntu ]] && osversion=`  grep Ubuntu /etc/issue | head -1 | grep -oE  "[0-9.]+"  `
+[[ $DISTRO == debian ]] && osversion=`  cat /etc/debian_version  `
+[[ $CODENAME =~ ("xenial"|"bionic"|"jessie"|"stretch") ]] && SysSupport=1
+
+#  -----------------------------------------------------------------------------------
+
+[[ $EUID -ne 0 ]] && echo -e "\n${red}错误${jiacu} 请使用 root 运行本脚本！${normal}" && exit 1
+[[ ! $DeBUG == 1 ]] &&
+[[ -d /proc/vz ]] && echo -e "\n${red}错误${jiacu} 不支持 OpenVZ！${normal}" && exit 1
+# Xen-PV 也不支持，不过就不作检测了……
+[[ ! $DeBUG == 1 ]] &&
+[[ ! $KernelBit == 64 ]] && echo -e "\n${red}错误${jiacu} 不支持非 64 位系统！${normal}" && exit 1
+[[ -z "$(dpkg -l |grep 'grub-')" ]] && echo -e "\n${red}错误${jiacu} 未发现 grub！${normal}" && exit 1
+[[ ! $DeBUG == 1 ]] &&
+[[ ! $SysSupport == 1 ]] && echo -e "\n${red}错误${jiacu} 不支持 Debian 8/9、Ubuntu 16.04/18.04 以外的系统！${normal}" && exit 1
+mkdir -p /log
+
+
+function _ip() { echo -e "\n${bold}正在检查服务器的 IP 信息 ...${normal}"
+
+serveripv4=$( ifconfig | grep -Eo 'inet (addr:)?([0-9]*\.){3}[0-9]*' | grep -Eo '([0-9]*\.){3}[0-9]*' | grep -v '127.0.0.1' )
+isInternalIpAddress "$serveripv4" || serveripv4=$( wget --no-check-certificate -t1 -T6 -qO- v4.ipv6-test.com/api/myip.php )
+isValidIpAddress "$serveripv4" || serveripv4=$( wget --no-check-certificate -t1 -T6 -qO- checkip.dyndns.org | sed -e 's/.*Current IP Address: //' -e 's/<.*$//' )
+isValidIpAddress "$serveripv4" || serveripv4=$( wget --no-check-certificate -t1 -T7 -qO- ipecho.net/plain )
+isValidIpAddress "$serveripv4" || { echo "${bold}${red}${shanshuo}ERROR ${jiacu}${underline}Failed to detect your public IPv4 address, use internal address instead${normal}" ; serveripv4=$( ifconfig | grep -Eo 'inet (addr:)?([0-9]*\.){3}[0-9]*' | grep -Eo '([0-9]*\.){3}[0-9]*' | grep -v '127.0.0.1' ) ; }
+serveripv6=$( wget -t1 -T5 -qO- v6.ipv6-test.com/api/myip.php | grep -Eo "[0-9a-z:]+" | head -n1 )
+
+result=$( wget -qO- http://freeapi.ipip.net/$serveripv4 )
+country=$( echo $result | awk -F '"' '{print $2}' )
+region=$( echo $result | awk -F '"' '{print $4}' )
+city=$( echo $result | awk -F '"' '{print $6}' )
+isp=$( echo $result | awk -F '"' '{print $10}' )
+asn=$( wget -qO- https://ipapi.co/asn )
+
+showip=1
+}
+
+
+
+# 菜单
+function _menu() { clear ; echo
+
+# [[ $DeBUG == 1 ]] && { Outputs"/log/tcp.$SETUPDATE.log" ; }
+
+# 启用 rc.local
+[[ $CODENAME =~ (bionic|stretch) ]] && _enable_rclocal
+
+# 确保 debconf-get-selections 存在
+for ddd in debconf-set-selections debconf-get-selections ; do
+[[ ! `command -v $ddd` ]] && wget --no-check-certificate -qO /usr/bin/$ddd https://github.com/Aniverse/inexistence/raw/master/00.Installation/script/$ddd && chmod +x /usr/bin/$ddd ; done
+
+# 操作系统、内核等参数检测
+[ -f /etc/redhat-release ] && KNA=$(awk '{print $1}' /etc/redhat-release)
+[ -f /etc/os-release     ] && KNA=$(awk -F'[= "]' '/PRETTY_NAME/{print $3}' /etc/os-release)
+[ -f /etc/lsb-release    ] && KNA=$(awk -F'[="]+' '/DISTRIB_ID/{print $2}' /etc/lsb-release)
+# tcp_control=` awk '{print $1}' /proc/sys/net/ipv4/tcp_available_congestion_control `
+tcp_control=` cat /proc/sys/net/ipv4/tcp_congestion_control `
+tcp_control_all=` cat /proc/sys/net/ipv4/tcp_available_congestion_control `
+# tcp_control_all=` cat /proc/sys/net/ipv4/tcp_allowed_congestion_control `
+running_kernel=` uname -r `
+arch=$( uname -m )
+lbit=$( getconf LONG_BIT )
+
+# dpkg -l | grep "$running_kernel"
+
+tcp_c_name=$tcp_control
+[[ $tcp_control == reno ]] && tcp_c_name="reno (系统自带算法)"
+[[ $tcp_control == cubic ]] && tcp_c_name="cubic (系统自带算法)"
+[[ $tcp_control == westwood ]] && tcp_c_name="westwood (Xanmod 默认算法)"
+[[ $tcp_control == bbr ]] && tcp_c_name="bbr (原版 BBR)"
+[[ $tcp_control == bbr_powered ]] && tcp_c_name="bbr_powered (用 Vicer 脚本安装的 Yankee 版 魔改 BBR)"
+[[ $tcp_control == tsunami ]] && tcp_c_name="tsunami (Yankee 版 魔改 BBR)"
+[[ $tcp_control == nanqinlang ]] && tcp_c_name="nanqinlang (南琴浪 版 魔改 BBR)"
+
+# 以后准备增加检查当前系统是否有可用内核但是没启用的情况（比如装了4.11.12，但是当前锐速使用了3.16.0-43，这样要切换到BBR的话其实不需要删掉内核或者重新安装4.11.12的）
+# 不过想不删掉其他内核只用那个内核的话还是有点麻烦的，估计还是会写成把其他内核删掉的方法
+# digit_ver_image=`dpkg -l | grep linux-image | awk '{print $2}' | awk -F '-' '{print $3}'`
+# digit_ver_headers=`dpkg -l | grep linux-headers | awk '{print $2}' | awk -F '-' '{print $3}'`
+
+# 检查理论上内核是否支持锐速
+SSKernel="${red}否${jiacu}"
+#URLKernel='https://raw.githubusercontent.com/0oVicero0/serverSpeeder_kernel/master/serverSpeeder.txt'
+URLKernel='https://raw.githubusercontent.com/MoeClub/lotServer/master/lotServer.log'
+AcceVer=$(wget --no-check-certificate -qO- "$URLKernel" |grep "$KNA/" |grep "/x$KernelBit/" |grep "/$running_kernel/" |awk -F'/' '{print $NF}' |sort -n -k 2 -t '_' |tail -n 1)
+MyKernel=$(wget --no-check-certificate -qO- "$URLKernel" |grep "$KNA/" |grep "/x$KernelBit/" |grep "/$running_kernel/" |grep "$AcceVer" |tail -n 1)
+[[ ! -z "$MyKernel" ]] && SSKernel="${green}是${jiacu}"
+
+# 检查理论上内核是否支持原版 BBR
+function version_ge(){ test "$(echo "$@" | tr " " "\n" | sort -rV | head -n 1)" == "$1" ; }
+
+kernel_vvv=$(uname -r | cut -d- -f1)
+if version_ge $kernel_vvv 4.9  ; then BBRKernel="${green}是${jiacu}" ; else BBRKernel="${red}否${jiacu}" ; fi
+if version_ge $kernel_vvv 4.10 && ! version_ge $kernel_vvv 4.19 ; then YKKernel="${green}是${jiacu}"  ; else YKKernel="${red}否${jiacu}" ; fi
+if version_ge $kernel_vvv 4.9.3  && ! version_ge $kernel_vvv 4.19 ; then NQLKernel="${green}是${jiacu}" ; else NQLKernel="${red}否${jiacu}" ; fi
+ver_4_13=`dpkg -l | grep linux-image | awk '{print $2}' | awk -F '-' '{print $3}' | grep "4.13"`
+ver_4_14=`dpkg -l | grep linux-image | awk '{print $2}' | awk -F '-' '{print $3}' | grep "4.14"`
+ver_4_15=`dpkg -l | grep linux-image | awk '{print $2}' | awk -F '-' '{print $3}' | grep "4.15"`
+ver_4_16=`dpkg -l | grep linux-image | awk '{print $2}' | awk -F '-' '{print $3}' | grep "4.16"`
+ver_4_17=`dpkg -l | grep linux-image | awk '{print $2}' | awk -F '-' '{print $3}' | grep "4.17"`
+ver_4_18=`dpkg -l | grep linux-image | awk '{print $2}' | awk -F '-' '{print $3}' | grep "4.18"`
+ver_4_19=`dpkg -l | grep linux-image | awk '{print $2}' | awk -F '-' '{print $3}' | grep "4.19"`
+
+# 检查 锐速 与 BBR 是否已启用
+[[ ` ps aux | grep appex | grep -v grep ` ]] && SSrunning="${green}是${jiacu}" || SSrunning="${red}否${jiacu}"
+
+if [[ $tcp_control =~ ("nanqinlang"|"tsunami") ]]; then bbrinuse="${green}是${jiacu}"
+elif [[ `echo $tcp_control | grep bbr` ]]; then bbrinuse="${green}是${jiacu}"
+else bbrinuse="${red}否${jiacu}" ; fi
+
+# Xanmod 里 bbr 不出现在 lsmod 里
+# if [[ `lsmod | grep -E "bbr|nanqinlang|tsunami"` ]] ; then bbrinuse="${green}是${jiacu}" ; else bbrinuse="${red}否${jiacu}" ; fi
+
+dpkg -l | grep linux-image   | awk '{print $2}' >> /tmp/system_kernel_list
+dpkg -l | grep ovhkernel     | awk '{print $2}' >> /tmp/system_kernel_list
+dpkg -l | grep pve-kernel    | awk '{print $2}' >> /tmp/system_kernel_list
+dpkg -l | grep linux-headers | awk '{print $2}' >> /tmp/system_kernel_list
+dpkg -l | grep linux-modules | awk '{print $2}' >> /tmp/system_kernel_list
+dpkg -l | grep generic-hwe   | awk '{print $2}' >> /tmp/system_kernel_list
+
+echo -e  " ${baizise}${bold}                                   El Psy Congroo!                                   ${normal} "
+echo -e  "  ${bold}"
+[[ $showip == 1 ]] && {
+echo -e  "  IPv4 地址                            ${green}$serveripv4${jiacu}"
+[[ $serveripv6 ]] &&
+echo -e  "  IPv6 地址                            ${green}$serveripv6${jiacu}"
+echo -e  "  ASN／ISP                             ${green}$asn, $isp${jiacu}"
+echo -e  "  地理位置                             ${green}$city, $region, $country${jiacu}" ; }
+echo -e  "  当前操作系统                         ${green}$DISTROU $osversion $CODENAME (x$lbit)${jiacu}"
+echo -e  "  当前正在使用的 TCP 拥塞控制算法      ${green}$tcp_c_name${jiacu}"
+[[ $DeBUG == 1 ]] &&
+echo -e  "  当前可以使用的 TCP 拥塞控制算法      ${green}$tcp_control_all${jiacu}"
+echo -e  "  当前正在使用的系统内核               ${green}$running_kernel${jiacu}"
+echo -e  "  当前内核是否支持 原版 BBR            $BBRKernel"
+echo -e  "  当前内核是否支持 Yankee  版魔改 BBR  $YKKernel"
+echo -e  "  当前内核是否支持 南琴浪  版魔改 BBR  $NQLKernel"
+echo -e  "  当前内核是否支持 Moeclub 版锐速      $SSKernel"
+echo -e  "  当前 BBR  是否已启用                 $bbrinuse"
+echo -e  "  当前 锐速 是否已启用                 $SSrunning"
+
+[[ $DeBUG == 1 ]] && echo &&
+echo -e  "  当前 CPU  调度方式                   $( cat /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor 2>/dev/null | head -1                       )" && 
+echo -e  "  当前 硬盘 调度算法                   $( cat /sys/block/[sv]da/queue/scheduler 2>/dev/null | cut -d '[' -f2|cut -d ']'  -f1                    )" && 
+echo -e  "  当前 硬盘 文件系统                   $( cat /proc/mounts | grep -P "`df -k | sort -rn -k4 | awk '{print $1}' | head -1`\b" | awk '{print $3}' )" && 
+echo -e  "  当前 硬盘 挂载方式                   $( cat /proc/mounts | grep -P "`df -k | sort -rn -k4 | awk '{print $1}' | head -1`\b" | awk '{print $4}' )"
+
+echo -e  "\n  当前系统内所有已安装的 kernel／headers／modules 列表\n"
+cat -n /tmp/system_kernel_list | sed 's/\t/ /g' | sed "s/ linux-/) ${green}linux-/g" | sed "s/ pve-/) ${green}pve-/g" | sed "s/ ovhkernel-/) ${green}ovhkernel-/g" | sed "s/     /  ${magenta}(0/g" | sed "s/    /  ${magenta}(/g"
+echo -e  "\n  ${jiacu}当前脚本版本：$ScriptVersion        脚本更新时间：$ScriptDate"
+[[ $DeBUG == 1 ]] && echo -e  "\n  当前脚本已处于调试模式"
+echo -e  "\n  ${yellow}${bold}使用本脚本前请先阅读本脚本 GitHub 上的 README；作者水平菜，不保证脚本不会翻车${jiacu}\n"
+[[ ! $DeBUG == 1 ]] && echo -e  "  ${shanshuo}如果运行时出错退出，可以输入这条命令查看日志：${red}cat $Outputs${jiacu}"
+echo -e  "\n  如需报错请务必附上日志！${jiacu}\n"
+
+[[ ! $( dpkg -l | grep $(uname -r) ) ]] && echo -e "\n  ${bold}${red}注意${jiacu} 系统中似乎检测不到你当前的内核，你可能正在使用来自 netboot 的内核。\n       这种情况下本脚本的功能不一定能正常工作！\n"
+
+# 下次考虑把 exit 1 也加上报错信息提示
+
+echo -e  "  ${green}(01) ${jiacu}安装 原版 BBR "
+echo -e  "  ${green}(02) ${jiacu}安装 魔改 BBR (tsunami) "
+echo -e  "  ${green}(03) ${jiacu}安装 魔改 BBR (nanqinlang) "
+#echo -e  "  ${green}(04) ${jiacu}安装 bbrplus (暂无)"
+echo -e  "  ${green}(05) ${jiacu}安装 锐速 / LotServer"
+echo -e  "  ${green}(06) ${jiacu}安装 锐速 / ServerSpeeder"
+[[ $DeBUG == 1 ]] &&
+echo -e  "  ${green}(11) ${jiacu}安装 指定内核"
+echo -e  "  ${green}(12) ${jiacu}安装 4.11.12 内核"
+echo -e  "  ${green}(13) ${jiacu}安装 SS 内核（4.4.0-47／3.12.1）"
+echo -e  "  ${green}(14) ${jiacu}安装 SS 内核（3.16.0-43／3.16.0-4）"
+echo -e  "  ${green}(15) ${jiacu}安装 LS 内核（4.15.0-30／4.9.0-4）"
+echo -e  "  ${green}(21) ${jiacu}卸载 BBR "
+echo -e  "  ${green}(22) ${jiacu}卸载 锐速 "
+echo -e  "  ${green}(23) ${jiacu}卸载 多余内核 "
+echo -e  "  ${green}(24) ${jiacu}卸载 指定内核 "
+[[ $DeBUG == 1 ]] && {
+echo -e  "  ${green}(31) ${jiacu}安装 Xanmod "
+echo -e  "  ${green}(32) ${jiacu}安装 Xanmod，删除其他内核 "
+echo -e  "  ${green}(33) ${jiacu}安装 liquorix " ; }
+echo -e  "  ${green}(90) ${jiacu}重启 "
+[[ $DeBUG == 1 ]] &&
+echo -e  "  ${green}(97) ${jiacu}检查 IP 信息 " &&
+echo -e  "  ${green}(98) ${jiacu}调试 "
+echo -e  "  ${green}(99) ${jiacu}返回 \n"
+rm -f /tmp/system_kernel_list ; }
+
+
+
+
+
+
+# action
+function _read_response() {
+# echo -ne "  ${yellow}你想做什么？(默认返回) ${normal}" ; read -e response ; echo -n "${normal}"
+read -ep "  ${yellow}你想做什么？(默认返回) ${normal}" response ; echo -n "${normal}"
+
+case $response in
+    1 | 01) # 安装 原版 BBR
+            _obbr_install ;;
+    2 | 02) # 安装 魔改 BBR (Yankee)
+            _ykbbr_install ;;
+    3 | 03) # 安装 魔改 BBR (nanqinlang)
+            _nqlbbr_install ;;
+    4 | 04) # 安装 bbrplus
+            bbrplus_install ;;
+    5 | 05) # 安装 LotServer
+            ls_install ;;
+    6 | 06) # 安装 ServerSpeeder
+            ss_install ;;
+        11) # 安装 最新内核
+            _selected_kernel_install ;;
+        12) # 安装 4.11.12 内核
+            _online_ubuntu_bbr_firmware ; _bbr_kernel_4_11_12 ;;
+        13) # 安装 特定的锐速内核（（4.4.0-47／3.12.1））
+            ss_kernel_install ;;
+        14) # 安装 SS 内核（3.16.0-43／3.16.0-4）
+            [[ $DISTRO == debian ]] && _debian_serverspeeder_kernel_3.16.0-4_apt
+            [[ $CODENAME == xenial ]] && kernelver=3.16.0-43-generic && _ubuntu_serverspeeder_kernel_repo ;;
+        15) # 安装 新版锐速支持的内核（只支持新系统），（4.15.0-30／4.9.0-4）
+            ss_kernel_install_v2 ;;
+        21) # 卸载 BBR
+            _bbr_uninstall ;;
+        22) # 卸载 锐速
+            _ss_uninstall ;;
+        23) # 卸载 多余内核
+            while [[ -z $kernel_version ]]; do
+                echo -ne "\n  ${bold}请输入你要 ${baihongse}保留${jiacu} 的内核版本，其他版本的内核将会被卸载：${normal} " ; read -e kernel_version
+                [[ ! ` dpkg -l | grep linux-image | grep "$kernel_version" ` ]] && { echo -e "\n  ${bold}${red}错误${jiacu} 大佬，你压根就没装这个内核吧！${normal}" ; unset kernel_version ; }
+            done
+            _delete_other_kernel ; _delete_other_kernel ;;
+        24) # 卸载 多余内核
+            while [[ -z $kernel_version ]]; do
+                echo -ne "\n  ${bold}请输入你要 ${baihongse}卸载${jiacu} 的内核版本，其他版本的内核将会被保留：${normal} " ; read -e kernel_version
+                [[ ! ` dpkg -l | grep linux-image | grep "$kernel_version" ` ]] && { echo -e "\n  ${bold}${red}错误${jiacu} 大佬，你压根就没装这个内核吧！${normal}" ; unset kernel_version ; }
+            done
+            _delete_kernel ;;
+        31) # 安装 xanmod
+            _xanmod_install ;;
+        32) # 安装 xanmod，删除其他内核
+            _xanmod_install ; _delete_other_kernel ; _delete_other_kernel ;;
+        33) # 安装 liquorix
+            _liquorix_install ;;
+        39) # 安装 HWE 内核
+            [[ $CODENAME == xenial ]] && apt-get install -y linux-generic-hwe-16.04
+            [[ $CODENAME == bionic ]] && apt-get install -y linux-generic-hwe-18.04 ;;
+        90) # 重启
+            reboot ;;
+        97) # 检查 IP 信息
+            _ip ; _menu ; _read_response ;;
+        98) # 启用调试模式
+            DeBUG=1 ; _menu ; _read_response ;;
+    ""| 99) # 返回
+            echo ; exit 0 ;;
+         *) echo ; exit 0 ;;
+esac ; }
+
+
+
+
+
+
+
+###################################################################################################################################################################
+
+
+
+
+
+# 安装 原版 BBR
+function _obbr_install() {
+
+# [[ `grep "Advanced options for Ubuntu" /etc/default/grub` ]] && sed -i 's/GRUB_DEFAULT=.*/GRUB_DEFAULT=""/' /etc/default/grub
+
+if [[ $BBRKernel == "${green}是${jiacu}" ]]; then
+
+    echo -ne "\n  ${bold}理论上当前内核已支持 ${green}原版 BBR，尝试直接启用 BBR ...${normal} "
+    bbrname=bbr
+    _enable_bbr ; echo
+
+  # 这个以后再拿去判断，现在（2018.10.23）懒得动了。。。
+    ls /lib/modules/$(uname -r)/kernel/net/ipv4 2>/dev/null | grep -q bbr && bbr_exist=yes || bbr_exist=no
+
+  # if [[ ` lsmod | grep bbr ` ]]; then echo -e "\n  ${bold}BBR 已启用 ...\n${normal}"
+  # else echo -e "\n  ${bold}${red}警告 BBR 可能开启失败！${normal}\n" ; exit 1 ; fi
+  # echo -e "\n  ${bold}BBR 大概已经已启用了（说真的我也不确定...） \n${normal}"
+
+    if [[ $(cat /proc/sys/net/ipv4/tcp_congestion_control) == bbr ]]; then echo -e "\n  ${bold}BBR 已启用 ...\n${normal}"
+    else echo -e "\n  ${bold}${red}警告 BBR 可能开启失败！考虑换个内核？${normal}\n" ; exit 1 ; fi
+
+else
+
+    _ask_continue2
+  # echo -e "  ${bold}当前内核不支持 BBR，先安装 ${green}4.11.12${jiacu} 内核以启用 BBR ...${normal} "
+    _online_ubuntu_bbr_firmware
+    _bbr_kernel_4_11_12
+    bbrname=bbr
+    _enable_bbr
+    [[ ! $DeBUG == 1 ]] && echo -ne "\n  ${bold}即将重启系统，重启后 ${green}BBR${jiacu} 将会启动 ... ${normal}\n" && reboot
+
+fi ; }
+
+
+
+# 安装 Yankee版魔改 BBR
+function _ykbbr_install() {
+
+# [[ `grep "Advanced options for Ubuntu" /etc/default/grub` ]] && sed -i 's/GRUB_DEFAULT=.*/GRUB_DEFAULT=0/' /etc/default/grub
+
+if [[ $YKKernel == "${green}是${jiacu}" ]]; then
+    echo -e "\n  ${bold}理论上当前内核已支持 ${green}Yankee${jiacu} 版魔改 BBR，安装并启用魔改 BBR ...${normal} "
+    _check_headers
+    _check_essential
+    _bbr_tsunami
+    bbrname=tsunami
+    _enable_bbr
+    if [[ ` lsmod | grep tsunami ` ]]; then echo -e "\n  ${bold}已开启 ${green}Yankee 版魔改 BBR${jiacu} ...${normal}\n"
+    else echo -e "\n  ${bold}${red}错误 ${green}Yankee 版魔改 BBR${jiacu} 开启失败！${normal}\n" ; exit 1 ; fi
+else
+    _ask_continue2
+  # echo -e "  ${bold}当前内核不支持 ${green}Yankee${jiacu} 版魔改 BBR，先安装 ${green}4.11.12${jiacu} 内核 ...${normal} "
+    _online_ubuntu_bbr_firmware
+    _check_essential
+    _bbr_kernel_4_11_12
+    kernel_version=4.11.12 && _delete_other_kernel
+    _bbr_tsunami_autoinstall_after_reboot
+    bbrname=tsunami
+    _enable_bbr
+    [[ ! $DeBUG == 1 ]] && echo -e "\n  ${bold}即将重启系统，重启后会自动安装 ${green}Yankee${jiacu} 版魔改 BBR ... ${normal}\n" && reboot
+fi ; }
+
+
+
+# 安装 南琴浪版魔改 BBR
+function _nqlbbr_install() {
+
+# [[ `grep "Advanced options for Ubuntu" /etc/default/grub` ]] && sed -i 's/GRUB_DEFAULT=.*/GRUB_DEFAULT=""/' /etc/default/grub
+
+if [[ $NQLKernel == "${green}是${jiacu}" ]]; then
+    echo -e "\n  ${bold}理论上当前内核已支持 ${green}南琴浪${jiacu} 版魔改 BBR，安装并启用魔改 BBR ...${normal} "
+    _check_headers
+    _check_essential
+    _bbr_nanqinlang
+    bbrname=nanqinlang
+    _enable_bbr
+    if [[ ` lsmod | grep nanqinlang ` ]]; then echo -e "\n  ${bold}已开启 ${green}南琴浪${jiacu} 版魔改 BBR ...${normal}\n\n"
+    else echo -e "\n  ${bold}${red}错误 ${green}南琴浪 版魔改 BBR${jiacu} 开启失败！${normal}\n" ; exit 1 ; fi
+else
+    _ask_continue2
+  # echo -e "  ${bold}当前内核不支持 ${green}南琴浪${jiacu} 版魔改 BBR，先安装 ${green}4.11.12${jiacu} 内核 ...${normal} "
+    _online_ubuntu_bbr_firmware
+    _check_essential
+    _bbr_kernel_4_11_12
+    kernel_version=4.11.12 && _delete_other_kernel
+    _bbr_nanqinlang_autoinstall_after_reboot
+    bbrname=nanqinlang
+    _enable_bbr
+    [[ ! $DeBUG == 1 ]] && echo -e "\n  ${bold}即将重启系统，重启后会自动安装 ${green}南琴浪${jiacu} 版魔改 BBR ... ${normal}\n" && reboot
+fi ; }
+
+
+
+
+
+#S5# 安装 LotServer，先懒得做下去了，剩下的再说吧
+function ls_install() {
+if [[ $SSKernel == "${green}是${jiacu}" ]]; then
+    echo -e "\n  ${bold}理论上当前内核已支持 ${green}锐速${jiacu}，直接安装 ... ${normal} "
+    lotserver_direct_install
+elif [[ $SSKernel == "${red}否${jiacu}" ]] && [[ $DISTRO == ubuntu ]]; then
+    _ask_continue2
+    ss_kernel_install_v2
+    _delete_other_kernel
+    _delete_other_kernel
+    lotserver_autoinstall_after_reboot
+    [[ ! $DeBUG == 1 ]] && echo -e "\n  ${bold}即将重启系统，重启后会自动安装 ${green}锐速${jiacu} ... ${normal}\n" && reboot
+elif [[ $SSKernel == "${red}否${jiacu}" ]] && [[ $DISTRO == debian ]]; then
+    _ask_continue2
+    ss_kernel_install_v2
+    _delete_other_kernel
+    _delete_other_kernel
+    lotserver_autoinstall_after_reboot
+    [[ ! $DeBUG == 1 ]] && echo -e "\n  ${bold}即将重启系统，重启后会自动安装 ${green}锐速${jiacu} ... ${normal}\n" && reboot
+fi ; }
+
+
+
+
+
+#S6# 安装 ServerSpeeder
+function ss_install() {
+if [[ $SSKernel == "${green}是${jiacu}" ]]; then
+    echo -e "\n  ${bold}理论上当前内核已支持 ${green}锐速${jiacu}，直接安装 ... ${normal} "
+    _serverspeeder_direct_install
+elif [[ $SSKernel == "${red}否${jiacu}" ]] && [[ $DISTRO == ubuntu ]] && [[ ! $CODENAME == bionic ]]; then
+    _ask_continue2
+    echo -ne "  ${bold}当前内核不支持 锐速，安装 ${green}3.16.0-43${jiacu} 内核 ... ${normal} \n"
+    export kernelver=3.16.0-43-generic
+    _ubuntu_serverspeeder_kernel_repo
+    _delete_other_kernel
+    _delete_other_kernel
+    _serverspeeder_autoinstall_after_reboot
+    [[ ! $DeBUG == 1 ]] && echo -e "\n  ${bold}即将重启系统，重启后会自动安装 ${green}锐速${jiacu} ... ${normal}\n" && reboot
+elif [[ $SSKernel == "${red}否${jiacu}" ]] && [[ $CODENAME == bionic ]]; then
+    _ask_continue2
+    echo -ne "  ${bold}当前内核不支持 锐速，安装 ${green}4.4.0-47${jiacu} 内核 ... ${normal} \n"
+    kernel_version=4.4.0-47
+    _ubuntu_serverspeeder_kernel_4.4.0-47_apt
+    _delete_other_kernel
+    _delete_other_kernel # 可能上一次卸载的时候又给你强行安装一个 4.4.0 最新的内核，所以再删一次
+    _serverspeeder_autoinstall_after_reboot
+    [[ ! $DeBUG == 1 ]] && echo -e "\n  ${bold}即将重启系统，重启后会自动安装 ${green}锐速${jiacu} ... ${normal}\n" && reboot
+elif [[ $SSKernel == "${red}否${jiacu}" ]] && [[ $DISTRO == debian ]]; then
+    _ask_continue2
+    echo -ne "  ${bold}当前内核不支持 锐速，安装 ${green}3.16.0-4${jiacu} 内核 ... ${normal} \n"
+    kernel_version=3.16.0-4
+    _debian_serverspeeder_kernel_3.16.0-4_apt
+    _delete_other_kernel
+    _delete_other_kernel # 可能上一次卸载的时候又给你强行安装一个 3.16.0 最新的内核（目前是 3.16.0-7），所以再删一次
+    _serverspeeder_autoinstall_after_reboot
+    [[ ! $DeBUG == 1 ]] && echo -e "\n  ${bold}即将重启系统，重启后会自动安装 ${green}锐速${jiacu} ... ${normal}\n" && reboot
+# elif [[ $SSKernel == "${red}否${jiacu}" ]] && [[ $CODENAME == jessie ]]; then
+#     _ask_continue2
+#     echo -ne "  ${bold}当前内核不支持 锐速，安装 ${green}3.12.1${jiacu} 内核 ... ${normal} "
+#     kernel_version=3.12-1
+#     _debian_serverspeeder_kernel_3.12.1
+#     _delete_other_kernel
+#     _serverspeeder_autoinstall_after_reboot
+#     [[ ! $DeBUG == 1 ]] && echo -e "\n  ${bold}即将重启系统，重启后会自动安装 ${green}锐速${jiacu} ... ${normal}\n" && reboot
+# elif [[ $SSKernel == "${red}否${jiacu}" ]] && [[ $CODENAME == stretch ]]; then
+#     _ask_continue2
+#     echo -ne "  ${bold}当前内核不支持 锐速，安装 ${green}3.16.0-4${jiacu} 内核 ... ${normal} "
+#     kernel_version=3.16.0-4
+#     _debian_serverspeeder_kernel_3.16.0-4_apt
+#     _delete_other_kernel
+#     _serverspeeder_autoinstall_after_reboot
+#     [[ ! $DeBUG == 1 ]] && echo -e "\n  ${bold}即将重启系统，重启后会自动安装 ${green}锐速${jiacu} ... ${normal}\n" && reboot
+fi ; }
+
+
+
+
+
+# 卸载 锐速
+function _ss_uninstall() {
+echo -ne "\n  ${bold}${red}警告 ${jiacu}即将开始卸载 ${green}锐速${jiacu}，敲 回车 继续，否则退出${normal} " ; read input
+case $input in
+    "" ) echo ;;
+    *  ) echo ; _read_response ;;
+esac
+[[ `grep "Advanced options for Ubuntu" /etc/default/grub` ]] && sed -i 's/GRUB_DEFAULT=.*/GRUB_DEFAULT=""/' /etc/default/grub && update-grub >> $Outputs 2>&1
+wget --no-check-certificate -qO /tmp/appex.sh "https://raw.githubusercontent.com/0oVicero0/serverSpeeder_Install/master/appex.sh" && echo | bash /tmp/appex.sh 'uninstall'
+echo -e "  ${bold}${red}已卸载 锐速，但安装的内核仍保留${normal}\n" ; }
+
+
+
+
+
+# 卸载 BBR
+function _bbr_uninstall() {
+echo -ne "\n  ${bold}${red}警告 ${jiacu}即将开始卸载 ${green}BBR${jiacu}，敲 回车 继续，否则退出${normal} " ; read input
+case $input in
+    "" ) echo ;;
+    *  ) echo ; _read_response ;;
+esac
+tcp_control=` sysctl net.ipv4.tcp_available_congestion_control | awk '{print $3}' `
+if [[ $tcp_control =~ ("nanqinlang"|"tsunami"|"bbr"|"bbr_powered") ]]; then bbrname=$tcp_control ; _disable_bbr ; echo -e "  ${bold}${red}已卸载 BBR，但安装的内核仍保留${normal}\n"
+else echo -e "  ${bold}${red}错误 ${jiacu}你并没有使用本脚本安装 BBR ...${normal}\n" ; _read_response ; fi ; }
+
+
+
+
+
+# 安装 指定内核（BBR）
+function _selected_kernel_install() {
+_get_version
+_install_required
+echo ; }
+
+
+
+
+
+#S13# 安装 特定锐速内核（OLD）
+function ss_kernel_install() {
+if   [[ $CODENAME =~ (xenial|bionic) ]]; then
+     echo -e "\n  ${bold}安装 ${green}4.4.0-47${jiacu} 内核 ...${normal} \n"
+     kernel_version=4.4.0-47
+     _ubuntu_serverspeeder_kernel_4.4.0-47_apt
+#    kernelver=3.16.0-43-generic
+#    _ubuntu_serverspeeder_kernel_repo
+     _delete_other_kernel
+     _serverspeeder_autoinstall_after_reboot
+elif [[ $CODENAME == jessie ]]; then
+     echo -e "\n  ${bold}安装 ${green}3.12-1${jiacu} 内核 ...${normal} \n"
+     kernel_version=3.12-1
+     _debian_serverspeeder_kernel_3.12.1
+     _delete_other_kernel
+     _serverspeeder_autoinstall_after_reboot
+else
+     echo -ne "\n  ${red}注意${jiacu} 本功能只支持 Debian 8 和 Ubuntu 16.04/18.04 ！${normal}"
+fi
+echo ; }
+
+
+
+
+
+#S14# 安装 特定锐速内核（New）
+function ss_kernel_install_v2() {
+if   [[ $CODENAME == bionic ]]; then
+     echo -e "\n  ${bold}安装 ${green}4.15.0-30${jiacu} 内核 ...${normal} \n"
+     kernel_version=4.15.0-30-generic
+     apt-get update
+     apt-get -y install linux-image-$kernel_version linux-headers-$kernel_version linux-modules-$kernel_version linux-modules-extra-$kernel_version
+elif [[ $CODENAME == stretch ]]; then
+     echo -e "\n  ${bold}安装 ${green}4.9.0-4${jiacu} 内核 ...${normal} \n"
+     kernel_version=4.9.0-4-amd64
+     apt-get update
+     apt-get -y install linux-image-$kernel_version linux-headers-$kernel_version
+else
+     echo -ne "\n  ${red}注意${jiacu} 本功能只支持 Debian 9 和 Ubuntu 18.04 ！${normal}"
+     exit 1
+fi
+echo ; }
+
+
+
+
+
+# 安装 xanmod，apt
+function _xanmod_apt_install() {
+# wget -q https://dl.xanmod.org/xanmod-repository.deb && dpkg -i xanmod-repository.deb
+echo 'deb http://deb.xanmod.org releases main' | tee /etc/apt/sources.list.d/xanmod-kernel.list
+wget -qO- http://deb.xanmod.org/gpg.key | apt-key add -
+apt-get update
+# apt-get install -y linux-xanmod-$kernel_version intel-microcode iucode-tool
+apt install -y linux-xanmod ; }
+
+
+
+
+
+# 安装 xanmod
+function _xanmod_install() {
+
+# echo -ne "\n  ${bold}输入你要安装的 Xanmod 版本：${normal} " ; read -e XanmodVer ; echo
+echo ; read -ep "  ${bold}输入你要安装的 Xanmod 版本： ${normal}" XanmodVer ; echo -e ""
+
+# read -ep "  ${bold}是否启用 mq ？（1/0）${normal} " mqo ; echo -e ""
+
+_online_ubuntu_bbr_firmware
+
+# 安装 Xanmod 内核
+# https://sourceforge.net/projects/xanmod/files/releases/
+cd ; mkdir -p deball ; cd deball
+
+if   [[ $XanmodVer == 4.12 ]]; then
+     kernel_version=4.12.14
+     wget --no-check-certificate -q https://github.com/Aniverse/BitTorrentClientCollection/raw/master/Xanmod/4.12/linux-image-4.12.14-xanmod15_1.170920_amd64.deb
+     wget --no-check-certificate -q https://github.com/Aniverse/BitTorrentClientCollection/raw/master/Xanmod/4.12/linux-headers-4.12.14-xanmod15_1.170920_amd64.deb
+     echo ; dpkg -i linux-image*.deb ; dpkg -i linux-headers*.deb
+   # echo ; apt-get install -y ./*.deb
+elif [[ $XanmodVer == 4.15 ]]; then
+     kernel_version=4.15.13
+     wget --no-check-certificate -q https://github.com/Aniverse/BitTorrentClientCollection/raw/master/Xanmod/4.15/linux-image-4.15.13-xanmod12_1.180325_amd64.deb
+     wget --no-check-certificate -q https://github.com/Aniverse/BitTorrentClientCollection/raw/master/Xanmod/4.15/linux-headers-4.15.13-xanmod12_1.180325_amd64.deb
+     echo ; dpkg -i linux-image*.deb ; dpkg -i linux-headers*.deb
+   # echo ; apt-get install -y ./*.deb
+elif [[ $XanmodVer == 4.16 ]]; then
+     kernel_version=4.16.12
+     wget --no-check-certificate -q https://github.com/Aniverse/BitTorrentClientCollection/raw/master/Xanmod/4.16/linux-image-4.16.12-xanmod11_2.180526_amd64.deb
+     wget --no-check-certificate -q https://github.com/Aniverse/BitTorrentClientCollection/raw/master/Xanmod/4.16/linux-headers-4.16.12-xanmod11_2.180526_amd64.deb
+     echo ; dpkg -i linux-image*.deb ; dpkg -i linux-headers*.deb
+   # echo ; apt-get install -y ./*.deb
+elif [[ $XanmodVer == 4.17 ]]; then
+     kernel_version=4.17.14
+     wget --no-check-certificate -q https://github.com/Aniverse/BitTorrentClientCollection/raw/master/Xanmod/4.17/linux-image-4.17.14-xanmod9_1.180810_amd64.deb
+     wget --no-check-certificate -q https://github.com/Aniverse/BitTorrentClientCollection/raw/master/Xanmod/4.17/linux-headers-4.17.14-xanmod9_1.180810_amd64.deb
+     echo ; dpkg -i linux-image*.deb ; dpkg -i linux-headers*.deb
+   # echo ; apt-get install -y ./*.deb
+elif [[ $XanmodVer == 4.18  ]]; then
+     kernel_version=4.18.16
+     wget --no-check-certificate -q https://github.com/Aniverse/BitTorrentClientCollection/raw/master/Xanmod/4.18/linux-image-4.18.16-xanmod9_1.181020_amd64.deb
+     wget --no-check-certificate -q https://github.com/Aniverse/BitTorrentClientCollection/raw/master/Xanmod/4.18/linux-headers-4.18.16-xanmod9_1.181020_amd64.deb
+     echo ; dpkg -i linux-image*.deb ; dpkg -i linux-headers*.deb
+elif [[ $XanmodVer == 4.19  ]]; then
+# 啥时候有空更新下
+     kernel_version=4.19.12
+     wget --no-check-certificate -q https://github.com/Aniverse/BitTorrentClientCollection/raw/master/Xanmod/4.19/linux-image-4.19.12-xanmod7_2.181223_amd64.deb
+     wget --no-check-certificate -q https://github.com/Aniverse/BitTorrentClientCollection/raw/master/Xanmod/4.19/linux-headers-4.19.12-xanmod7_2.181223_amd64.deb
+     echo ; dpkg -i linux-image*.deb ; dpkg -i linux-headers*.deb
+elif [[ $XanmodVer == apt  ]]; then
+     kernel_version=4.20 ; _xanmod_apt_install
+fi
+
+# wget --no-check-certificate -q https://github.com/Aniverse/BitTorrentClientCollection/raw/master/Xanmod/linux-firmware_1.161_all.deb
+
+cd ; rm -rf deball
+
+# echo -e "\n  ${bold}完成，即将重启 ...${normal} \n"
+# reboot
+
+}
+
+
+
+
+
+# 安装 liquorix
+function _liquorix_install() {
+
+_online_ubuntu_bbr_firmware
+# apt-get update
+
+if   [[ $DISTRO == ubuntu ]]; then
+     [[ ! `command -v add-apt-repository`  ]] && apt-get install -y software-properties-common
+     add-apt-repository ppa:damentz/liquorix
+elif [[ $DISTRO == debian ]]; then
+     [[ ! $(command -v curl)  ]] && apt-get install -y curl
+     [ $(dpkg-query -W -f='${Status}' apt-transport-https 2>/dev/null | grep -c "ok installed") -eq 0 ] && apt-get install -y apt-transport-https
+     echo "deb http://liquorix.net/debian sid main
+deb-src http://liquorix.net/debian sid main" > /etc/apt/sources.list.d/liquorix.list
+     curl https://liquorix.net/linux-liquorix.pub | apt-key add -
+fi
+
+apt-get update
+apt-get install linux-image-liquorix-amd64 linux-headers-liquorix-amd64 -y ; }
+
+
+
+
+
+###################################################################################################################################################################
+
+
+
+
+
+
+# 重启后自动安装 南琴浪 版 BBR
+function _bbr_nanqinlang_autoinstall_after_reboot() {
+
+mkdir -p /etc/autoinstall
+[[ ! -f /etc/rc.local.bak ]] && cp /etc/rc.local /etc/rc.local.bak
+
+cat > /etc/autoinstall/nqlbbr.sh <<EOF
+ver_4_13=\`dpkg -l | grep linux-image | awk '{print \$2}' | awk -F '-' '{print \$3}' | grep "4.13"\`
+ver_4_14=\`dpkg -l | grep linux-image | awk '{print \$2}' | awk -F '-' '{print \$3}' | grep "4.14"\`
+ver_4_15=\`dpkg -l | grep linux-image | awk '{print \$2}' | awk -F '-' '{print \$3}' | grep "4.15"\`
+ver_4_16=\`dpkg -l | grep linux-image | awk '{print \$2}' | awk -F '-' '{print \$3}' | grep "4.16"\`
+
+if   [[ ! -z "\${ver_4_13}" ]]; then wget --no-check-certificate -qO tcp_nanqinlang.c https://github.com/Aniverse/BitTorrentClientCollection/raw/master/TCP%20Congestion%20Control/BBR%204.13/tcp_nanqinlang.c
+elif [[ ! -z "\${ver_4_14}" ]]; then wget --no-check-certificate -qO tcp_nanqinlang.c https://github.com/Aniverse/BitTorrentClientCollection/raw/master/TCP%20Congestion%20Control/BBR%204.14/tcp_nanqinlang.c
+elif [[ ! -z "\${ver_4_15}" ]]; then wget --no-check-certificate -qO tcp_nanqinlang.c https://github.com/Aniverse/BitTorrentClientCollection/raw/master/TCP%20Congestion%20Control/BBR%204.15/tcp_nanqinlang.c
+elif [[ ! -z "\${ver_4_16}" ]]; then wget --no-check-certificate -qO tcp_nanqinlang.c https://github.com/Aniverse/BitTorrentClientCollection/raw/master/TCP%20Congestion%20Control/BBR%204.16/tcp_nanqinlang.c
+elif [[ ! -z "\${ver_4_17}" ]]; then wget --no-check-certificate -qO tcp_nanqinlang.c https://github.com/Aniverse/BitTorrentClientCollection/raw/master/TCP%20Congestion%20Control/BBR%204.17/tcp_nanqinlang.c
+elif [[ ! -z "\${ver_4_18}" ]]; then wget --no-check-certificate -qO tcp_nanqinlang.c https://github.com/Aniverse/BitTorrentClientCollection/raw/master/TCP%20Congestion%20Control/BBR%204.18/tcp_nanqinlang.c
+else wget --no-check-certificate -qO tcp_nanqinlang.c https://github.com/Aniverse/BitTorrentClientCollection/raw/master/TCP%20Congestion%20Control/BBR%204.12%20and%20below/tcp_nanqinlang.c ; fi
+
+echo "obj-m := tcp_nanqinlang.o" > Makefile
+make -C /lib/modules/\$(uname -r)/build M=\`pwd\` modules CC=\`which gcc\`
+cp -rf tcp_nanqinlang.ko /lib/modules/\$(uname -r)/kernel/net/ipv4
+insmod /lib/modules/\$(uname -r)/kernel/net/ipv4/tcp_nanqinlang.ko
+depmod -a
+
+rm -rf tcp_nanqinlang.c Makefile
+cp /etc/rc.local.bak /etc/rc.local
+sysctl -p
+EOF
+
+sed -i '$d' /etc/rc.local
+echo "bash /etc/autoinstall/nqlbbr.sh" >> /etc/rc.local
+echo "exit 0" >> /etc/rc.local ; }
+
+
+
+# 重启后自动安装 Yankee 版 BBR
+function _bbr_tsunami_autoinstall_after_reboot() {
+
+mkdir -p /etc/autoinstall
+[[ ! -f /etc/rc.local.bak ]] && cp /etc/rc.local /etc/rc.local.bak
+
+cat > /etc/autoinstall/ykbbr.sh <<EOF
+ver_4_13=\`dpkg -l | grep linux-image | awk '{print \$2}' | awk -F '-' '{print \$3}' | grep "4.13"\`
+ver_4_14=\`dpkg -l | grep linux-image | awk '{print \$2}' | awk -F '-' '{print \$3}' | grep "4.14"\`
+ver_4_15=\`dpkg -l | grep linux-image | awk '{print \$2}' | awk -F '-' '{print \$3}' | grep "4.15"\`
+
+if   [[ ! -z "\${ver_4_13}" ]]; then wget --no-check-certificate -qO tcp_tsunami.c https://github.com/Aniverse/BitTorrentClientCollection/raw/master/TCP%20Congestion%20Control/BBR%204.13/tcp_tsunami.c
+elif [[ ! -z "\${ver_4_14}" ]]; then wget --no-check-certificate -qO tcp_tsunami.c https://github.com/Aniverse/BitTorrentClientCollection/raw/master/TCP%20Congestion%20Control/BBR%204.14/tcp_tsunami.c
+elif [[ ! -z "\${ver_4_15}" ]]; then wget --no-check-certificate -qO tcp_tsunami.c https://github.com/Aniverse/BitTorrentClientCollection/raw/master/TCP%20Congestion%20Control/BBR%204.15/tcp_tsunami.c
+elif [[ ! -z "\${ver_4_16}" ]]; then wget --no-check-certificate -qO tcp_tsunami.c https://github.com/Aniverse/BitTorrentClientCollection/raw/master/TCP%20Congestion%20Control/BBR%204.16/tcp_tsunami.c
+elif [[ ! -z "\${ver_4_17}" ]]; then wget --no-check-certificate -qO tcp_tsunami.c https://github.com/Aniverse/BitTorrentClientCollection/raw/master/TCP%20Congestion%20Control/BBR%204.17/tcp_tsunami.c
+elif [[ ! -z "\${ver_4_18}" ]]; then wget --no-check-certificate -qO tcp_tsunami.c https://github.com/Aniverse/BitTorrentClientCollection/raw/master/TCP%20Congestion%20Control/BBR%204.18/tcp_tsunami.c
+else wget --no-check-certificate -qO tcp_tsunami.c https://github.com/Aniverse/BitTorrentClientCollection/raw/master/TCP%20Congestion%20Control/BBR%204.12%20and%20below/tcp_tsunami.c ; fi
+
+echo "obj-m:=tcp_tsunami.o" > Makefile
+make -C /lib/modules/\$(uname -r)/build M=\`pwd\` modules CC=\`which gcc\`
+
+insmod tcp_tsunami.ko
+cp -rf tcp_tsunami.ko /lib/modules/\$(uname -r)/kernel/net/ipv4
+depmod -a
+modprobe tcp_tsunami
+
+rm -rf tcp_tsunami.c Makefile
+cp /etc/rc.local.bak /etc/rc.local
+sysctl -p
+EOF
+
+[[ ! -f /etc/rc.local.bak ]] && cp /etc/rc.local /etc/rc.local.bak
+
+sed -i '$d' /etc/rc.local
+echo "bash /etc/autoinstall/ykbbr.sh" >> /etc/rc.local
+echo "exit 0" >> /etc/rc.local ; }
+
+
+
+# 重启后自动安装锐速
+function _serverspeeder_autoinstall_after_reboot() {
+mkdir -p /etc/autoinstall
+wget --no-check-certificate -qO /tmp/appex.sh "https://raw.githubusercontent.com/0oVicero0/serverSpeeder_Install/master/appex.sh"
+cat > /etc/autoinstall/appexinstall.sh << EOF
+echo | bash /etc/autoinstall/ 'install'
+cp /etc/rc.local.bak /etc/rc.local
+EOF
+[[ ! -f /etc/rc.local.bak ]] && cp /etc/rc.local /etc/rc.local.bak
+sed -i '$d' /etc/rc.local
+echo "bash /etc/autoinstall/appexinstall.sh" >> /etc/rc.local
+echo "exit 0" >> /etc/rc.local ; }
+
+function _lotserver_autoinstall_after_reboot() {
+mkdir -p /etc/autoinstall
+wget --no-check-certificate -qO /etc/autoinstall/Install.sh https://github.com/MoeClub/lotServer/raw/master/Install.sh
+cat > /etc/autoinstall/appexinstall.sh << EOF
+echo | bash /etc/autoinstall/Install.sh install
+cp /etc/rc.local.bak /etc/rc.local
+EOF
+[[ ! -f /etc/rc.local.bak ]] && cp /etc/rc.local /etc/rc.local.bak
+sed -i '$d' /etc/rc.local
+echo "bash /etc/autoinstall/appexinstall.sh" >> /etc/rc.local
+echo "exit 0" >> /etc/rc.local ; }
+
+
+
+###################################################################################################################################################################
+
+
+
+
+
+
+
+# Debian 安装 3.12.1 内核（For ServerSpeeder）
+function _debian_serverspeeder_kernel_3.12.1() {
+wget --no-check-certificate -qO 1.deb https://github.com/Aniverse/BitTorrentClientCollection/raw/master/Linux%20Kernel/ServerSpeeder/linux-headers-3.12-1.deb
+wget --no-check-certificate -qO 2.deb https://github.com/Aniverse/BitTorrentClientCollection/raw/master/Linux%20Kernel/ServerSpeeder/linux-image-3.12-1.deb
+echo ` debconf-get-selections linux-image-3.12-1-amd64 | grep -C5 "keep the local version currently installed" | grep keep_current | sed "s/select/note/g"` | debconf-set-selections
+echo ` debconf-get-selections linux-headers-3.12-1-common | grep -C5 "keep the local version currently installed" | grep keep_current | sed "s/select/note/g"` | debconf-set-selections
+{ dpkg -i [12].deb >> $Outputs 2>&1 ; } || { echo -e "\n  ${bold}${red}错误${jiacu} 安装 内核 失败！${normal}" | tee -a $Outputs ; exit 1 ; }
+rm  -rf [12].deb ; echo ; }
+
+
+
+# Debian 安装 3.16.0-4 内核（For ServerSpeeder）
+function _debian_serverspeeder_kernel_3.16.0-4() {
+wget --no-check-certificate -qO 1.deb https://github.com/Aniverse/BitTorrentClientCollection/raw/master/Linux%20Kernel/ServerSpeeder/linux-image-3.16.0-4.deb
+echo ` debconf-get-selections linux-image-3.16.0-4-amd64 | grep -C5 "keep the local version currently installed" | grep keep_current | sed "s/select/note/g"` | debconf-set-selections
+{ dpkg -i 1.deb >> $Outputs 2>&1 ; } || { echo -e "\n  ${bold}${red}错误${jiacu} 安装 内核 失败！${normal}" | tee -a $Outputs ; exit 1 ; }
+rm  -rf 1.deb ; }
+
+
+
+# Debian 安装 3.16.0-4 内核（apt-get install）（For ServerSpeeder）
+function _debian_serverspeeder_kernel_3.16.0-4_apt() {
+[[ ! $( grep snapshot.debian.org /etc/apt/sources.list) ]] &&
+cat >>/etc/apt/sources.list<<EOF
+deb http://snapshot.debian.org/archive/debian/20180620T205325Z/ jessie main contrib non-free
+deb-src http://snapshot.debian.org/archive/debian/20180620T205325Z/ jessie main contrib non-free
+EOF
+apt-get update >> $Outputs 2>&1
+apt-get install -y linux-image-3.16.0-4-amd64 >> $Outputs 2>&1
+apt-get install -y linux-headers-3.16.0-4-common linux-headers-3.16.0-4-all >> $Outputs 2>&1
+apt-get install -y grep unzip ethtool >> $Outputs 2>&1
+[[ ! $( dpkg -l | grep linux-image-3.16.0-4-amd64 ) ]] && { echo -e "\n  ${bold}${red}错误${jiacu} 安装 内核 失败！${normal}" | tee -a $Outputs ; exit 1 ; } ; }
+
+
+
+# Ubuntu 安装 4.4.0-47 内核（For ServerSpeeder）
+function _ubuntu_serverspeeder_kernel_4.4.0-47() {
+wget --no-check-certificate -qO 1.deb https://github.com/Aniverse/BitTorrentClientCollection/raw/master/Linux%20Kernel/ServerSpeeder/linux-image-4.4.0-47.deb
+wget --no-check-certificate -qO 2.deb https://github.com/Aniverse/BitTorrentClientCollection/raw/master/Linux%20Kernel/ServerSpeeder/linux-headers-4.4.0-47-all.deb
+wget --no-check-certificate -qO 3.deb https://github.com/Aniverse/BitTorrentClientCollection/raw/master/Linux%20Kernel/ServerSpeeder/linux-headers-4.4.0-47.deb
+echo ` debconf-get-selections linux-image-4.4.0-47-generic | grep -C5 "keep the local version currently installed" | grep keep_current | sed "s/select/note/g"` | debconf-set-selections
+echo ` debconf-get-selections linux-headers-4.4.0-47 | grep -C5 "keep the local version currently installed" | grep keep_current | sed "s/select/note/g"` | debconf-set-selections
+echo ` debconf-get-selections linux-headers-4.4.0-47-generic | grep -C5 "keep the local version currently installed" | grep keep_current | sed "s/select/note/g"` | debconf-set-selections
+apt-get install -y grep unzip ethtool >> $Outputs 2>&1
+{ dpkg -i [123].deb >> $Outputs 2>&1 ; } || { echo -e "\n  ${bold}${red}错误${jiacu} 安装 内核 失败！${normal}" | tee -a $Outputs ; exit 1 ; }
+rm  -rf [123].deb ; }
+
+
+
+# Ubuntu 安装 4.4.0-47 内核（apt-get install）（For ServerSpeeder）
+function _ubuntu_serverspeeder_kernel_4.4.0-47_apt() {
+[[ $CODENAME == bionic ]] && [[ ! `grep "xenial" /etc/apt/sources.list` ]] && echo -e "\ndeb http://archive.ubuntu.com/ubuntu/ xenial-security main restricted universe multiverse" >> /etc/apt/sources.list
+apt-get update >> $Outputs 2>&1
+apt-get install -y linux-image-4.4.0-47-generic linux-image-extra-4.4.0-47-generic linux-headers-4.4.0-47-generic >> $Outputs 2>&1
+apt-get install -y grep unzip ethtool >> $Outputs 2>&1
+[[ ! $( dpkg -l | grep linux-image-4.4.0-47-generic ) ]] && { echo -e "\n  ${bold}${red}错误${jiacu} 安装 内核 失败！${normal}" | tee -a $Outputs ; exit 1 ; } ; }
+
+
+
+# Ubuntu 安装 3.16.0-43 内核（For ServerSpeeder）
+function _ubuntu_serverspeeder_kernel_3.16.0-43() {
+apt-get -y install module-init-tools >> $Outputs 2>&1
+wget --no-check-certificate -qO 1.deb https://github.com/Aniverse/SSKernel/raw/master/Ubuntu/linux-image-3.16.0-43-generic_3.16.0-43.58~14.04.1_amd64.deb
+wget --no-check-certificate -qO 2.deb https://github.com/Aniverse/SSKernel/raw/master/Ubuntu/image-extra/linux-image-extra-3.16.0-43-generic_3.16.0-43.58~14.04.1_amd64.deb
+wget --no-check-certificate -qO 3.deb https://github.com/Aniverse/SSKernel/raw/master/Ubuntu/headers/linux-headers-3.16.0-43-generic_3.16.0-43.58~14.04.1_amd64.deb
+apt-get install -y grep unzip ethtool >> $Outputs 2>&1
+echo ` debconf-get-selections linux-image-3.16.0-43-generic | grep -C5 "keep the local version currently installed" | grep keep_current | sed "s/select/note/g"` | debconf-set-selections
+echo ` debconf-get-selections linux-image-extra-3.16.0-43-generic | grep -C5 "keep the local version currently installed" | grep keep_current | sed "s/select/note/g"` | debconf-set-selections
+echo ` debconf-get-selections linux-headers-3.16.0-43-generic | grep -C5 "keep the local version currently installed" | grep keep_current | sed "s/select/note/g"` | debconf-set-selections
+{ dpkg -i 1.deb >> $Outputs 2>&1 ; } || { echo -e "\n  ${bold}${red}错误${jiacu} 安装 内核 失败！${normal}" | tee -a $Outputs ; exit 1 ; }
+dpkg -i 2.deb >> $Outputs 2>&1 ; apt-get -f -y install >> $Outputs 2>&1
+dpkg -i 3.deb >> $Outputs 2>&1 ; apt-get -f -y install >> $Outputs 2>&1
+rm  -rf [123].deb ; }
+
+
+
+# Ubuntu 从系统源安装锐速内核（For ServerSpeeder）
+function _ubuntu_serverspeeder_kernel_repo() {
+sed -i '/deb http:\/\/security.ubuntu.com\/ubuntu trusty-security main/'d /etc/apt/sources.list
+[[ `grep "trusty-security" /etc/apt/sources.list` ]] && sleep 0 || echo -e "\ndeb http://security.ubuntu.com/ubuntu trusty-security main" >> /etc/apt/sources.list
+echo -ne "\n  ${bold}添加源，更新 ...  ${normal}" | tee -a $Outputs ; echo >> $Outputs
+{ apt-get update >> $Outputs 2>&1 ; } && { echo "${green}${bold}完成${normal}" | tee -a $Outputs ; }
+echo -ne "\n  ${bold}安装内核 ...  ${normal}" | tee -a $Outputs     ; echo >> $Outputs
+apt-get install -y grep unzip ethtool >> $Outputs 2>&1
+apt-get -y install linux-image-extra-$kernelver linux-image-$kernelver linux-headers-$kernelver >> $Outputs 2>&1 && { echo "${green}${bold}完成${normal}" | tee -a $Outputs ; }
+[[ ! ` dpkg -l | grep linux-image-$kernelver ` ]] && { echo "${bold}${red}失败${normal}" | tee -a $Outputs ; exit 1 ; }
+sed -i '/deb http:\/\/security.ubuntu.com\/ubuntu trusty-security main/'d /etc/apt/sources.list
+echo -ne "\n  ${bold}删除源，更新 ...  ${normal}" | tee -a $Outputs ; echo >> $Outputs
+{ apt-get update >> $Outputs 2>&1 ; } && { echo "${green}${bold}完成${normal}" | tee -a $Outputs ; } ; }
+
+
+
+# Ubuntu 不卸载新内核的情况下使用老内核启动（For ServerSpeeder）
+function _ubuntu_serverspeeder_updategrub() {
+sed -i 's/GRUB_DEFAULT=.*/GRUB_DEFAULT="Advanced options for Ubuntu>Ubuntu, with Linux kernelver"/' /etc/default/grub
+sed -i "s/kernelver/$kernelver/" /etc/default/grub
+_update_grub ; }
+
+
+
+
+# 内核匹配的情况下安装锐速
+function _serverspeeder_direct_install() { wget --no-check-certificate -qO /tmp/appex.sh "https://raw.githubusercontent.com/0oVicero0/serverSpeeder_Install/master/appex.sh" && echo | bash /tmp/appex.sh 'install'
+ps aux | grep -v grep | grep -q appex && echo -e "\n${bold}${green}锐速已在运行 ...${normal}\n" || echo -e "\n${bold}${red}锐速尚未在运行，可能安装失败！${normal}\n" ; }
+
+function lotserver_direct_install() {
+# bash <(wget --no-check-certificate -qO- https://github.com/Aniverse/lotServer/raw/master/lotServer.sh) I
+echo | bash <(wget --no-check-certificate -qO- https://github.com/MoeClub/lotServer/raw/master/Install.sh) install
+ps aux | grep -v grep | grep -q appex && echo -e "\n${bold}${green}锐速已在运行 ...${normal}\n" || echo -e "\n${bold}${red}锐速尚未在运行，可能安装失败！${normal}\n" ; }
+
+
+
+
+###################################################################################################################################################################
+
+
+
+
+
+
+# Online.net 独服补充固件（For BBR）
+function _online_ubuntu_bbr_firmware() {
+mkdir -p /lib/firmware/bnx2
+if [[ ! -f /lib/firmware/bnx2/fw.lock ]]; then
+    touch /lib/firmware/bnx2/fw.lock
+    echo -ne "  ${bold}下载可能缺少的固件 ... ${normal}" | tee -a $Outputs ; echo >> $Outputs
+    wget -qO /lib/firmware/bnx2/bnx2-mips-06-6.2.3.fw https://github.com/Aniverse/BitTorrentClientCollection/raw/master/Linux%20Firmware/bnx2-mips-06-6.2.3.fw
+    wget -qO /lib/firmware/bnx2/bnx2-mips-09-6.2.1b.fw https://github.com/Aniverse/BitTorrentClientCollection/raw/master/Linux%20Firmware/bnx2-mips-09-6.2.1b.fw
+    wget -qO /lib/firmware/bnx2/bnx2-rv2p-09ax-6.0.17.fw https://github.com/Aniverse/BitTorrentClientCollection/raw/master/Linux%20Firmware/bnx2-rv2p-09ax-6.0.17.fw
+    wget -qO /lib/firmware/bnx2/bnx2-rv2p-09-6.0.17.fw https://github.com/Aniverse/BitTorrentClientCollection/raw/master/Linux%20Firmware/bnx2-rv2p-09-6.0.17.fw
+    wget -qO /lib/firmware/bnx2/bnx2-rv2p-06-6.0.15.fw https://github.com/Aniverse/BitTorrentClientCollection/raw/master/Linux%20Firmware/bnx2-rv2p-06-6.0.15.fw
+    echo | tee -a $Outputs
+fi ; }
+
+
+
+# 安装 4.11.12 的内核（For BBR）
+function _bbr_kernel_4_11_12() {
+if [[ $CODENAME =~ (stretch|buster) ]]; then
+    [[ ! `dpkg -l | grep libssl1.0.0` ]] && {
+    echo -ne "\n  ${bold}安装 libssl1.0.0 ...${normal} " | tee -a $Outputs
+    wget --no-check-certificate https://github.com/Aniverse/BitTorrentClientCollection/raw/master/Deb%20Package/Jessie/libssl1.0.0_1.0.1t-1+deb8u7_amd64.deb -O libssl1.0.deb >> $Outputs 2>&1
+    dpkg -i libssl1.0.deb >> $Outputs 2>&1
+    rm -f libssl1.0.deb ; echo | tee -a $Outputs
+    [[ ! `dpkg -l | grep libssl1.0.0` ]] && { echo -e "\n  ${red}错误${bold} 安装 libssl1.0.0 失败！${normal}" | tee -a $Outputs ; exit 1 ; } ; }
+else
+    [[ ! `dpkg -l | grep libssl1.0.0` ]] && { echo -ne "\n  ${bold}安装 libssl1.0.0 ...${normal} " | tee -a $Outputs ; apt-get install -y libssl1.0.0 >> $Outputs 2>&1 ; echo | tee -a $Outputs
+    [[ ! `dpkg -l | grep libssl1.0.0` ]] && { echo -e  "\n$  ${red}错误${bold} 安装 libssl1.0.0 失败！${normal}" | tee -a $Outputs ; exit 1 ; } ; }
+fi
+echo -ne "\n  ${bold}安装 4.11.12 内核及其头文件 ... ${normal} " | tee -a $Outputs ; echo >> $Outputs
+wget --no-check-certificate -qO 1.deb https://github.com/Aniverse/BitTorrentClientCollection/raw/master/Linux%20Kernel/BBR/linux-headers-4.11.12-all.deb
+wget --no-check-certificate -qO 2.deb https://github.com/Aniverse/BitTorrentClientCollection/raw/master/Linux%20Kernel/BBR/linux-headers-4.11.12-amd64.deb
+wget --no-check-certificate -qO 3.deb https://github.com/Aniverse/BitTorrentClientCollection/raw/master/Linux%20Kernel/BBR/linux-image-4.11.12-generic-amd64.deb
+dpkg -i [123].deb >> $Outputs 2>&1 || { echo -e "\n  ${bold}${red}错误${jiacu} 安装 内核 失败！${normal}" ; exit 1 ; }
+rm -rf [123].deb ; echo
+_update_grub ; }
+
+
+
+
+
+
+# 检查安装魔改版 BBR 所需的必要软件包
+function _check_essential() {
+
+apt_install_needed=no
+[[ ! `command -v make` ]] && apt_install_needed=yes
+[[ ! `command -v awk`  ]] && apt_install_needed=yes
+[[ ! `command -v gcc`  ]] && apt_install_needed=yes
+[[ ! `dpkg -l | grep libelf-dev` ]]      && apt_install_needed=yes
+[[ ! `dpkg -l | grep libssl1.0.0` ]]     && apt_install_needed=yes
+[[ ! `dpkg -l | grep build-essential` ]] && apt_install_needed=yes
+
+[[ $apt_install_needed == yes ]] && { 
+echo -ne "\n  ${bold}需要安装相关依赖以编译魔改版 BBR，先更新系统源 ...${normal} " | tee -a $Outputs
+apt-get update >> $Outputs 2>&1
+echo | tee -a $Outputs
+echo -ne "\n  ${bold}修复可能存在的依赖问题 ...${normal} " | tee -a $Outputs
+apt-get install -f -y >> $Outputs 2>&1
+echo | tee -a $Outputs ; }
+
+[[ ! `dpkg -l | grep libelf-dev` ]] && { echo -ne "\n  ${bold}安装 libelf-dev ...${normal} " | tee -a $Outputs ; apt-get install -y libelf1 libelf-dev >> $Outputs 2>&1 ; echo | tee -a $Outputs
+[[ ! `dpkg -l | grep libelf-dev` ]] && { echo -e  "\n  ${red}错误${bold} 安装 libelf-dev 失败！${normal}" | tee -a $Outputs ; exit 1 ; } ; }
+
+if [[ $CODENAME =~ (stretch|buster) ]]; then
+    [[ ! `dpkg -l | grep libssl1.0.0` ]] && {
+    echo -ne "\n  ${bold}安装 libssl1.0.0 ...${normal} " | tee -a $Outputs
+    wget --no-check-certificate https://github.com/Aniverse/BitTorrentClientCollection/raw/master/Deb%20Package/Jessie/libssl1.0.0_1.0.1t-1+deb8u7_amd64.deb -O libssl1.0.deb >> $Outputs 2>&1
+    dpkg -i libssl1.0.deb >> $Outputs 2>&1
+    rm -f libssl1.0.deb ; echo | tee -a $Outputs
+  # echo -e "\ndeb http://ftp.hk.debian.org/debian jessie main\c" >> /etc/apt/sources.list
+  # apt-get update >> $Outputs 2>&1
+  # apt-get install -y libssl1.0.0 >> $Outputs 2>&1
+  # sed  -i '/deb http:\/\/ftp\.hk\.debian\.org\/debian jessie main/d' /etc/apt/sources.list
+  # apt-get update >> $Outputs 2>&1 ; echo
+    [[ ! `dpkg -l | grep libssl1.0.0` ]] && { echo -e "\n  ${red}错误${bold} 安装 libssl1.0.0 失败！${normal}" | tee -a $Outputs ; exit 1 ; } ; }
+else
+    [[ ! `dpkg -l | grep libssl1.0.0` ]] && { echo -ne "\n  ${bold}安装 libssl1.0.0 ...${normal} " | tee -a $Outputs ; apt-get install -y libssl1.0.0 >> $Outputs 2>&1 ; echo | tee -a $Outputs
+    [[ ! `dpkg -l | grep libssl1.0.0` ]] && { echo -e  "\n$  ${red}错误${bold} 安装 libssl1.0.0 失败！${normal}" | tee -a $Outputs ; exit 1 ; } ; }
+fi
+
+which make >> $Outputs 2>&1 ; [ $? -ne '0' ] && { echo -ne "\n  ${bold}安装 make ...${normal} "    | tee -a $Outputs  ; apt-get install -y make >> $Outputs 2>&1 ; echo | tee -a $Outputs
+which make >> $Outputs 2>&1 ; [ $? -ne '0' ] && { echo -e  "\n  ${red}错误${bold} 安装 make 失败！${normal}" | tee -a $Outputs ; exit 1 ; } ; }
+
+which awk  >> $Outputs 2>&1 ; [ $? -ne '0' ] && { echo -ne "\n  ${bold}安装 awk ...${normal} "     | tee -a $Outputs  ; apt-get install -y gawk >> $Outputs 2>&1 ; echo | tee -a $Outputs
+which awk  >> $Outputs 2>&1 ; [ $? -ne '0' ] && { echo -e  "\n  ${red}错误${bold} 安装 awk 失败！${normal}" | tee -a $Outputs  ; exit 1 ; } ; }
+
+which gcc  >> $Outputs 2>&1 ; [ $? -ne '0' ] && { echo -ne "\n  ${bold}安装 gcc ...${normal} "     | tee -a $Outputs  ; apt-get install -y gcc  >> $Outputs 2>&1 ; echo | tee -a $Outputs
+which gcc  >> $Outputs 2>&1 ; [ $? -ne '0' ] && { echo -e  "\n  ${red}错误${bold} 安装 gcc 失败！${normal}" | tee -a $Outputs  ; exit 1 ; } ; }
+
+gcc_ok=0 ; gcc_ver=` gcc --version | grep -Eo '[0-9]+\.[0-9]+\.[0-9]+' | head -n1 `
+gcc_ver_1=` echo $gcc_ver | awk -F. '{print $1}' ` ; gcc_ver_2=` echo $gcc_ver | awk -F. '{print $2}' `
+[[ -n $gcc_ver_1 ]] && [[ $gcc_ver_1 -gt 4 ]] && gcc_ok=1
+[[ $gcc_ver_1 == 4 ]] && [[ -n $gcc_ver_2 ]] && [[ $gcc_ver_2 -ge 9 ]] && gcc_ok=1
+[[ $gcc_ok == 0 ]] && { echo -e "\n  ${red}错误${bold} gcc 版本低于 4.9！${normal}" | tee -a $Outputs ; exit 1 ; }
+
+[[ ! `dpkg -l | grep build-essential` ]] && { echo -ne "\n  ${bold}安装 build-essential ...${normal} " | tee -a $Outputs  ; apt-get install -y build-essential >> $Outputs 2>&1 ; echo | tee -a $Outputs
+[[ ! `dpkg -l | grep build-essential` ]] && { echo -e  "\n  ${red}错误${bold} 安装 build-essential  失败！${normal}" | tee -a $Outputs ; exit 1 ; } ; } ; }
+
+
+
+# 南琴浪版魔改 BBR 编译安装算法
+function _bbr_nanqinlang(){
+echo -ne "\n  ${bold}编译魔改 BBR 算法 ...${normal} " | tee -a $Outputs
+echo >> $Outputs 2>&1
+if   [[ ! -z "${ver_4_13}" ]]; then wget --no-check-certificate -O tcp_nanqinlang.c https://github.com/Aniverse/BitTorrentClientCollection/raw/master/TCP%20Congestion%20Control/BBR%204.13/tcp_nanqinlang.c >> $Outputs 2>&1
+elif [[ ! -z "${ver_4_14}" ]]; then wget --no-check-certificate -O tcp_nanqinlang.c https://github.com/Aniverse/BitTorrentClientCollection/raw/master/TCP%20Congestion%20Control/BBR%204.14/tcp_nanqinlang.c >> $Outputs 2>&1
+elif [[ ! -z "${ver_4_15}" ]]; then wget --no-check-certificate -O tcp_nanqinlang.c https://github.com/Aniverse/BitTorrentClientCollection/raw/master/TCP%20Congestion%20Control/BBR%204.15/tcp_nanqinlang.c >> $Outputs 2>&1
+elif [[ ! -z "${ver_4_16}" ]]; then wget --no-check-certificate -O tcp_nanqinlang.c https://github.com/Aniverse/BitTorrentClientCollection/raw/master/TCP%20Congestion%20Control/BBR%204.16/tcp_nanqinlang.c >> $Outputs 2>&1
+elif [[ ! -z "${ver_4_17}" ]]; then wget --no-check-certificate -O tcp_nanqinlang.c https://github.com/Aniverse/BitTorrentClientCollection/raw/master/TCP%20Congestion%20Control/BBR%204.17/tcp_nanqinlang.c >> $Outputs 2>&1
+elif [[ ! -z "${ver_4_18}" ]]; then wget --no-check-certificate -O tcp_nanqinlang.c https://github.com/Aniverse/BitTorrentClientCollection/raw/master/TCP%20Congestion%20Control/BBR%204.18/tcp_nanqinlang.c >> $Outputs 2>&1
+else                                wget --no-check-certificate -O tcp_nanqinlang.c https://github.com/Aniverse/BitTorrentClientCollection/raw/master/TCP%20Congestion%20Control/BBR%204.12%20and%20below/tcp_nanqinlang.c >> $Outputs 2>&1 ; fi
+
+# wget --no-check-certificate -qO Makefile https://raw.githubusercontent.com/nanqinlang-tcp/tcp_nanqinlang/master/Makefile/Makefile-Debian9
+# sed -i "s/\/usr\/bin\/gcc-6/\`which gcc\`/" Makefile
+# make && make install
+
+echo "obj-m := tcp_nanqinlang.o" > Makefile
+mkdir -p /lib/modules/$(uname -r)/build
+make -C /lib/modules/$(uname -r)/build M=`pwd` modules CC=`which gcc` >> $Outputs 2>&1
+cp -rf tcp_nanqinlang.ko /lib/modules/$(uname -r)/kernel/net/ipv4 >> $Outputs 2>&1
+insmod /lib/modules/$(uname -r)/kernel/net/ipv4/tcp_nanqinlang.ko >> $Outputs 2>&1
+depmod -a >> $Outputs 2>&1
+
+rm -rf tcp_nanqinlang.c Makefile
+echo ; }
+
+
+
+# 安装 Yankee 版 魔改 BBR
+function _bbr_tsunami() {
+echo -ne "\n  ${bold}编译魔改 BBR 算法 ...${normal} " | tee -a $Outputs
+echo >> $Outputs 2>&1
+if   [[ ! -z "${ver_4_13}" ]]; then wget --no-check-certificate -qO tcp_tsunami.c https://github.com/Aniverse/BitTorrentClientCollection/raw/master/TCP%20Congestion%20Control/BBR%204.13/tcp_tsunami.c
+elif [[ ! -z "${ver_4_14}" ]]; then wget --no-check-certificate -qO tcp_tsunami.c https://github.com/Aniverse/BitTorrentClientCollection/raw/master/TCP%20Congestion%20Control/BBR%204.14/tcp_tsunami.c
+elif [[ ! -z "${ver_4_15}" ]]; then wget --no-check-certificate -qO tcp_tsunami.c https://github.com/Aniverse/BitTorrentClientCollection/raw/master/TCP%20Congestion%20Control/BBR%204.15/tcp_tsunami.c
+elif [[ ! -z "${ver_4_16}" ]]; then wget --no-check-certificate -qO tcp_tsunami.c https://github.com/Aniverse/BitTorrentClientCollection/raw/master/TCP%20Congestion%20Control/BBR%204.16/tcp_tsunami.c
+elif [[ ! -z "${ver_4_17}" ]]; then wget --no-check-certificate -qO tcp_tsunami.c https://github.com/Aniverse/BitTorrentClientCollection/raw/master/TCP%20Congestion%20Control/BBR%204.17/tcp_tsunami.c
+elif [[ ! -z "${ver_4_18}" ]]; then wget --no-check-certificate -qO tcp_tsunami.c https://github.com/Aniverse/BitTorrentClientCollection/raw/master/TCP%20Congestion%20Control/BBR%204.18/tcp_tsunami.c
+else wget --no-check-certificate -qO tcp_tsunami.c https://github.com/Aniverse/BitTorrentClientCollection/raw/master/TCP%20Congestion%20Control/BBR%204.12%20and%20below/tcp_tsunami.c ; fi
+
+echo "obj-m:=tcp_tsunami.o" > Makefile
+mkdir -p /lib/modules/$(uname -r)/build
+make -C /lib/modules/$(uname -r)/build M=`pwd` modules CC=`which gcc` >> $Outputs 2>&1
+insmod tcp_tsunami.ko >> $Outputs 2>&1
+cp -rf ./tcp_tsunami.ko /lib/modules/$(uname -r)/kernel/net/ipv4 >> $Outputs 2>&1
+depmod -a >> $Outputs 2>&1
+modprobe tcp_tsunami >> $Outputs 2>&1
+
+rm -rf tcp_tsunami.c Makefile
+echo ; }
+
+
+
+# 开启 BBR 或 魔改版 BBR
+function _enable_bbr() {
+sed -i '/net.core.default_qdisc.*/d' /etc/sysctl.conf
+sed -i '/net.ipv4.tcp_congestion_control.*/d' /etc/sysctl.conf
+echo "net.core.default_qdisc = fq" >> /etc/sysctl.conf
+echo "net.ipv4.tcp_congestion_control = $bbrname" >> /etc/sysctl.conf
+modprobe tcp_$bbrname >> $Outputs 2>&1
+# sysctl -w net.ipv4.tcp_congestion_control=$bbrname >> $Outputs 2>&1
+sysctl -p >> $Outputs 2>&1 ; }
+
+
+
+# 关闭 BBR 或 魔改版 BBR
+function _disable_bbr() {
+sed -i '/net.core.default_qdisc.*/d' /etc/sysctl.conf
+sed -i '/net.ipv4.tcp_congestion_control.*/d' /etc/sysctl.conf
+echo "net.ipv4.tcp_congestion_control = cubic" >> /etc/sysctl.conf
+[[ ! $bbrname == bbr ]] && rm /lib/modules/`uname -r`/kernel/net/ipv4/tcp_$bbrname.ko
+sysctl -p >> $Outputs 2>&1 ; }
+
+
+
+# 检查 headers
+function _check_headers() {
+required_version=$(  uname -r | cut  -d- -f1  )
+[[ ` echo $required_version | grep -E "[2345].[0-9]+.0" ` ]] && required_version=$( uname -r | grep -Eo "[2345].[0-9]+" )
+headers_exits=`  dpkg -l | grep linux-headers | awk '{print $2}' | awk -F '-' '{print $3}' | grep $required_version | wc -l  `
+if [[ $headers_exits == 0 ]]; then
+    echo -e "\n  ${red}警告${jiacu} 没有安装与内核对应的头文件，先尝试安装内核头文件 ...${normal} " | tee -a $Outputs
+    _install_required_headers
+fi ; }
+
+
+
+# 询问版本（BBR）
+function _get_version() {
+unset required_version
+echo -e "\n  ${red}注意${jiacu} 不推荐使用高版本内核，可能无法成功安装或者无法成功编译魔改版 BBR！${normal}"
+while [[ -z "${required_version}" ]]; do
+    echo -ne "\n  ${yellow}输入你想要的内核版本号 （敲回车则使用最新内核）：${normal}" ; read -e required_version
+    [[ -z "${required_version}" ]] && required_version=`  wget -qO- http://kernel.ubuntu.com/~kernel-ppa/mainline/ | awk -F'\"v' '/v[4-9]./{print $2}' | cut -d/ -f1 | grep -v -  | sort -V | tail -1  `
+    [[ -z ` wget -qO- http://kernel.ubuntu.com/~kernel-ppa/mainline/v${required_version}/ ` ]] && { echo -e "\n  ${red}错误${jiacu} 这个内核不存在或无法使用本脚本下载，请重新输入！${normal}" ; unset required_version ; }
+done
+echo -e "\n  ${yellow}输入你想要的内核版本号 （敲回车则使用最新内核）：$required_version ${normal}" >> $Outputs ; }
+
+
+
+# 确定安装内核？
+function _install_required() {
+
+[[ ! `dpkg -l | grep libssl1.0.0` ]] && apt_install_needed=yes
+
+[[ $apt_install_needed == yes ]] && { 
+echo -ne "\n  ${bold}需要安装相关依赖以安装内核，先更新系统源 ...${normal} " | tee -a $Outputs
+echo >> $Outputs
+apt-get update >> $Outputs 2>&1
+echo | tee -a $Outputs
+echo -ne "\n  ${bold}修复可能存在的依赖问题 ...${normal} " | tee -a $Outputs
+echo >> $Outputs
+apt-get install -f -y >> $Outputs 2>&1
+echo | tee -a $Outputs ; }
+
+if [[ $CODENAME == stretch ]]; then
+    [[ ! `dpkg -l | grep libssl1.0.0` ]] && {
+    echo -ne "\n  ${bold}安装 libssl1.0.0 ...${normal} " | tee -a $Outputs
+    echo >> $Outputs
+    wget --no-check-certificate https://github.com/Aniverse/BitTorrentClientCollection/raw/master/Deb%20Package/Jessie/libssl1.0.0_1.0.1t-1+deb8u7_amd64.deb -O libssl1.0.deb >> $Outputs 2>&1
+    dpkg -i libssl1.0.deb >> $Outputs 2>&1
+    rm -f libssl1.0.deb ; echo
+    [[ ! `dpkg -l | grep libssl1.0.0` ]] && { echo -e "\n  ${red}错误${bold} 安装 libssl1.0.0 失败！${normal}" | tee -a $Outputs ; exit 1 ; } ; }
+else
+    [[ ! `dpkg -l | grep libssl1.0.0` ]] && { echo -ne "\n  ${bold}安装 libssl1.0.0 ...${normal} " | tee -a $Outputs ; echo >> $Outputs ; apt-get install -y libssl1.0.0 >> $Outputs 2>&1 ; echo
+    [[ ! `dpkg -l | grep libssl1.0.0` ]] && { echo -e  "\n$  ${red}错误${bold} 安装 libssl1.0.0 失败！${normal}" | tee -a $Outputs ; exit 1 ; } ; }
+fi
+
+digit_ver_image=`dpkg -l | grep linux-image | awk '{print $2}' | awk -F '-' '{print $3}' | grep "${required_version}"`
+digit_ver_headers=`dpkg -l | grep linux-headers | awk '{print $2}' | awk -F '-' '{print $3}' | grep "${required_version}"`
+digit_ver_modules=`dpkg -l | grep linux-modules | awk '{print $2}' | awk -F '-' '{print $3}' | grep "${required_version}"`
+[[ $DeBUG == 1 ]] && echo "${required_version}"
+
+if [[ -z $digit_ver_modules ]]; then _install_required_modules
+else echo -e "\n  ${bold}${green}$required_version${jiacu} 模组已安装 ...${normal}" | tee -a $Outputs ; fi
+
+if [[ -z $digit_ver_image ]]; then _install_required_kernel
+else echo -e "\n  ${bold}${green}$required_version${jiacu} 内核已安装 ...${normal}" | tee -a $Outputs ; fi
+
+if [[ -z $digit_ver_headers ]]; then _install_required_headers
+else echo -e "\n  ${bold}${green}$required_version${jiacu} 头文件已安装 ...${normal}" | tee -a $Outputs ; fi
+
+echo ; }
+
+
+
+# 安装自选版本的内核
+function _install_required_kernel() {
+[[ $DeBUG == 1 ]] && echo "${required_version}"
+image_name=`  wget -qO- http://kernel.ubuntu.com/~kernel-ppa/mainline/v${required_version}/ | grep linux-image | grep generic | awk -F'\">' '/amd64.deb/{print $2}' | cut -d'<' -f1 | head -1  `
+image_url="http://kernel.ubuntu.com/~kernel-ppa/mainline/v${required_version}/${image_name}"
+
+echo -ne "\n  ${bold}安装 ${green}$required_version${jiacu} 内核 ... ${normal}" | tee -a $Outputs
+echo >> $Outputs
+wget -qO kernel.deb $image_url      || { echo -e "\n  ${red}错误${jiacu} 内核 下载失败！${normal}\n" | tee -a $Outputs ; exit 1 ; }
+dpkg -i kernel.deb >> $Outputs 2>&1 || { echo -e "\n  ${red}错误${jiacu} 内核 安装失败！${normal}\n" | tee -a $Outputs ; exit 1 ; }
+echo -e "${bold}${green}DONE${normal}"
+
+rm -f kernel.deb ; }
+
+
+
+# 安装自选版本的头文件
+function _install_required_headers() {
+headers_all_name=`  wget -qO- http://kernel.ubuntu.com/~kernel-ppa/mainline/v${required_version}/ | grep "linux-headers" | grep "all" | awk -F'\">' '/all.deb/{print $2}' | cut -d'<' -f1 | head -1  `
+headers_all_url="http://kernel.ubuntu.com/~kernel-ppa/mainline/v${required_version}/${headers_all_name}"
+headers_bit_name=`  wget -qO- http://kernel.ubuntu.com/~kernel-ppa/mainline/v${required_version}/ | grep "linux-headers" | awk -F'\">' '/amd64.deb/{print $2}' | cut -d'<' -f1 | head -1  `
+headers_bit_url="http://kernel.ubuntu.com/~kernel-ppa/mainline/v${required_version}/${headers_bit_name}"
+
+echo -ne "\n  ${bold}安装 ${green}$required_version${jiacu} headers_all ... ${normal}" | tee -a $Outputs
+echo >> $Outputs
+wget -qO headers1.deb $headers_all_url || { echo -e "\n  ${red}错误${jiacu} headers_all 下载失败！${normal}\n" | tee -a $Outputs ; exit 1 ; }
+dpkg -i headers1.deb >> $Outputs 2>&1  || { echo -e "\n  ${red}错误${jiacu} headers_all 安装失败！${normal}\n" | tee -a $Outputs ; exit 1 ; }
+echo -e "${bold}${green}DONE${normal}"
+
+echo -ne "\n  ${bold}安装 ${green}$required_version${jiacu} headers ... ${normal}" | tee -a $Outputs
+echo >> $Outputs
+wget -qO headers2.deb $headers_bit_url || { echo -e "\n  ${red}错误${jiacu} headers 下载失败！${normal}\n"     | tee -a $Outputs ; exit 1 ; }
+dpkg -i headers2.deb >> $Outputs 2>&1  || { echo -e "\n  ${red}错误${jiacu} headers_all 安装失败！${normal}\n" | tee -a $Outputs ; exit 1 ; }
+echo -e "${bold}${green}DONE${normal}"
+
+rm -f headers1.deb headers2.deb ; }
+
+
+
+# 安装自选版本的模组（？）
+function _install_required_modules() {
+modules_name=`wget -qO- http://kernel.ubuntu.com/~kernel-ppa/mainline/v${required_version}/ | grep linux-modules | awk -F'\">' '/amd64.deb/{print $2}' | cut -d'<' -f1 | head -1`
+[[ $modules_name ]] && {
+modules_url="http://kernel.ubuntu.com/~kernel-ppa/mainline/v${required_version}/${modules_name}"
+
+echo -ne "\n  ${bold}安装 ${green}$required_version${jiacu} 模组 ... ${normal}" | tee -a $Outputs
+echo >> $Outputs
+wget -qO modules.deb $modules_url    || { echo -e "\n  ${red}错误${jiacu} 模组 下载失败！${normal}\n" | tee -a $Outputs ; exit 1 ; }
+dpkg -i modules.deb >> $Outputs 2>&1 || { echo -e "\n  ${red}错误${jiacu} 模组 安装失败！${normal}\n" | tee -a $Outputs ; exit 1 ; }
+echo -e "${bold}${green}DONE${normal}"
+
+rm -f modules.deb ; } ; }
+
+
+
+###################################################################################################################################################################
+
+
+
+# 禁用启动选项
+function _disable_advanced_boot() { sed -i 's/GRUB_DEFAULT=.*/GRUB_DEFAULT=""/' /etc/default/grub ; }
+
+# 更新引导
+function _update_grub() { echo -ne "\n  ${bold}更新引导 ...  ${normal}" | tee -a $Outputs ; echo >> $Outputs
+{ update-grub >> $Outputs 2>&1 ; } && { echo "${green}${bold}完成${normal}" | tee -a $Outputs ; } ; }
+
+# 目前自带更新引导的三个 function：ubuntu 启动选项、删除其他内核、安装 4.11.12 内核
+
+
+
+# 删除指定内核
+function _delete_kernel() {
+echo -e "\n  ${bold}卸载指定内核及其头文件 ... ${normal}\n" | tee -a $Outputs
+
+dpkg -l | grep linux-image   | grep "${kernel_version}" | awk '{print $2}' >  /log/kernel_tobe_del_list
+dpkg -l | grep ovhkernel     | grep "${kernel_version}" | awk '{print $2}' >> /log/kernel_tobe_del_list
+dpkg -l | grep pve-kernel    | grep "${kernel_version}" | awk '{print $2}' >> /log/kernel_tobe_del_list
+dpkg -l | grep linux-headers | grep "${kernel_version}" | awk '{print $2}' >> /log/kernel_tobe_del_list
+dpkg -l | grep linux-modules | grep "${kernel_version}" | awk '{print $2}' >> /log/kernel_tobe_del_list
+dpkg -l | grep generic-hwe   | grep "${kernel_version}" | awk '{print $2}' >> /log/kernel_tobe_del_list
+
+kernel_total_num=` cat /log/kernel_tobe_del_list | wc -l `
+
+if [ $kernel_total_num > 1 ]; then
+    for (( integer = 1 ; integer <= ${kernel_total_num} ; integer++ )) ; do
+      # kernel_tobe_del=` dpkg -l | grep -E linux-[image,headers,modules] | grep -v binutils | awk '{print $2}' | grep -v "${kernel_version}" | head -${integer} `
+        kernel_tobe_del=` cat /log/kernel_tobe_del_list | sed -n "${integer}p" `
+        echo -ne "  卸载 ${kernel_tobe_del} ... " | tee -a $Outputs ; echo >> $Outputs
+        echo `debconf-get-selections ${deb_del} | grep removing-running-kernel | grep $running_kernel | sed s/true/false/` | debconf-set-selections
+        [[ $DeBUG == 1 ]] && { echo -e "\n  $integer, $kernel_tobe_del" ; }
+        apt-get -y purge $kernel_tobe_del >> $Outputs 2>&1 && { echo "${green}${bold}完成${normal}" | tee -a $Outputs ; } || { echo "${red}${bold}失败${normal}" | tee -a $Outputs ; }
+    done
+fi
+
+rm -f /log/kernel_tobe_del_list
+_update_grub ; }
+
+
+
+#S23# 仅保留指定内核，删除其他内核
+function _delete_other_kernel() {
+echo -e "\n  ${bold}卸载其他内核及其头文件 ... ${normal}\n" | tee -a $Outputs
+dpkg -l | grep linux-image   | grep -v "${kernel_version}" | awk '{print $2}' >  /log/kernel_tobe_del_list
+dpkg -l | grep ovhkernel     | grep -v "${kernel_version}" | awk '{print $2}' >> /log/kernel_tobe_del_list
+dpkg -l | grep pve-kernel    | grep -v "${kernel_version}" | awk '{print $2}' >> /log/kernel_tobe_del_list
+dpkg -l | grep linux-headers | grep -v "${kernel_version}" | awk '{print $2}' >> /log/kernel_tobe_del_list
+dpkg -l | grep linux-modules | grep -v "${kernel_version}" | awk '{print $2}' >> /log/kernel_tobe_del_list
+dpkg -l | grep generic-hwe   | grep -v "${kernel_version}" | awk '{print $2}' >> /log/kernel_tobe_del_list
+
+[[ $DeBUG == 1 ]] && cat /log/kernel_tobe_del_list
+kernel_total_num=` cat /log/kernel_tobe_del_list | wc -l `
+
+if [ $kernel_total_num > 1 ]; then
+    for (( integer = 1 ; integer <= ${kernel_total_num} ; integer++ )) ; do
+      # kernel_tobe_del=` dpkg -l | grep -E linux-[image,headers,modules] | grep -v binutils | awk '{print $2}' | grep -v "${kernel_version}" | head -${integer} `
+        kernel_tobe_del=` cat /log/kernel_tobe_del_list | sed -n "${integer}p" `
+        echo -ne "  卸载 ${kernel_tobe_del} ... " | tee -a $Outputs ; echo >> $Outputs
+        echo `debconf-get-selections ${deb_del} | grep removing-running-kernel | grep $running_kernel | sed s/true/false/` | debconf-set-selections
+        [[ $DeBUG == 1 ]] && { echo -e "\n  $integer, $kernel_tobe_del" ; }
+        apt-get -y purge $kernel_tobe_del >> $Outputs 2>&1 && { echo "${green}${bold}完成${normal}" | tee -a $Outputs ; } || { echo "${red}${bold}失败${normal}" | tee -a $Outputs ; }
+    done
+fi
+
+rm -f /log/kernel_tobe_del_list
+_update_grub ; }
+
+
+
+# 启用 /etc/rc.local
+function _enable_rclocal() {
+
+[[ ! -f /etc/rc.local ]] &&
+cat <<EOF >/etc/rc.local
+#!/bin/sh -e
+#
+# rc.local
+#
+# This script is executed at the end of each multiuser runlevel.
+# Make sure that the script will "exit 0" on success or any other
+# value on error.
+#
+# In order to enable or disable this script just change the execution
+# bits.
+#
+# By default this script does nothing.
+
+exit 0
+EOF
+
+chmod +x /etc/rc.local
+systemctl start rc-local ; }
+
+
+
+# 询问是否继续（重启版）
+function _ask_continue2() { echo -ne "\n  ${bold}输入 ${bailvse}回车${jiacu} 继续，完成后会直接重启；按 ${baihongse}Ctrl+C${jiacu} 退出${normal} " ; read response ; echo ; }
+
+
+
+
+cp -f /etc/default/grub "/etc/default/grub.bak.$(date "+%Y.%m.%d.%H.%M.%S")"
+# [[ $DeBUG == 1 ]] && _ip
+# _ip
+_menu
+_read_response
