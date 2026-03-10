@@ -1,0 +1,159 @@
+[melom]
+type = drive  
+scope = drive  
+service_account_file = /home/boxbox/gdtogd/melom/accounts/1.json
+service_account_file_path = /home/boxbox/gdtogd/melom/accounts/
+root_folder_id = root 
+
+[m30]
+type = drive  
+scope = drive  
+service_account_file = /home/boxbox/gdtogd/Newlyc/30/accounts/001.json
+service_account_file_path = /home/boxbox/gdtogd/Newlyc/30/accounts/
+root_folder_id = root
+
+[ma]
+type = drive  
+scope = drive  
+service_account_file = /home/boxbox/gdtogd/Newlyc/100/accounts/new100-338612-fbb77ef51af9.json
+service_account_file_path = /home/boxbox/gdtogd/Newlyc/100/accounts/
+root_folder_id = root
+
+[mb]
+type = drive  
+scope = drive  
+service_account_file = /home/boxbox/gdtogd/Newlya/001/accounts/00a48a8a5836886cec9853a9cb6709f6830b658b.json
+service_account_file_path = /home/boxbox/gdtogd/Newlya/001/accounts/
+root_folder_id = root
+
+[mc]
+type = drive  
+scope = drive  
+service_account_file = /home/boxbox/gdtogd/Newlyc/001/accounts/1.json
+service_account_file_path = /home/boxbox/gdtogd/Newlyc/001/accounts/
+root_folder_id = root
+
+[md]
+type = drive  
+scope = drive  
+service_account_file = /home/boxbox/gdtogd/Newlyc/002/accounts/1.json
+service_account_file_path = /home/boxbox/gdtogd/Newlyc/002/accounts/
+root_folder_id = root
+
+[me]
+type = drive  
+scope = drive  
+service_account_file = /home/boxbox/gdtogd/Newlyc/003/accounts/1.json
+service_account_file_path = /home/boxbox/gdtogd/Newlyc/003/accounts/
+root_folder_id = root
+
+[ta]
+type = drive  
+scope = drive  
+service_account_file = /home/boxbox/gdtogd/Newlya/002/accounts/0a6fcba33416e0d169c02a45816b0e32c6ff9aef.json
+service_account_file_path = /home/boxbox/gdtogd/Newlya/002/accounts/
+root_folder_id = root
+
+[tb]
+type = drive  
+scope = drive  
+service_account_file = /home/boxbox/gdtogd/New/001/accounts/0b7b5c9cc8cbca821087636dd49a9337e6ed99e3.json
+service_account_file_path = /home/boxbox/gdtogd/New/001/accounts/
+root_folder_id = root
+
+[tc]
+type = drive  
+scope = drive  
+service_account_file = /home/boxbox/gdtogd/New/002/accounts/0bf46b553b4030ba010257b3254b1b910aa5706d.json
+service_account_file_path = /home/boxbox/gdtogd/New/002/accounts/
+root_folder_id = root
+
+[te]
+type = drive  
+scope = drive  
+service_account_file = /home/boxbox/gdtogd/New/003/accounts/0c835a1337135d07ad1ef5cc34507fffd8bb8e51.json
+service_account_file_path = /home/boxbox/gdtogd/New/003/accounts/
+root_folder_id = root
+
+[tf]
+type = drive  
+scope = drive  
+service_account_file = /home/boxbox/gdtogd/New/004/accounts/0d99d8be7b63b15186faea2045c4264c6408d5d7.json
+service_account_file_path = /home/boxbox/gdtogd/New/004/accounts/
+root_folder_id = root
+
+[tg]
+type = drive  
+scope = drive  
+service_account_file = /home/boxbox/gdtogd/New/005/accounts/0bdf960e07856b54ce4423f94b855d288367abfc.json
+service_account_file_path = /home/boxbox/gdtogd/New/005/accounts/
+root_folder_id = root
+
+[th]
+type = drive  
+scope = drive  
+service_account_file = /home/boxbox/gdtogd/New/006/accounts/0efaba90399ba9c93e1bd18e6fb7301d6f6f52f1.json
+service_account_file_path = /home/boxbox/gdtogd/New/006/accounts/
+root_folder_id = root
+
+[dl]
+type = drive  
+scope = drive  
+service_account_file = /home/boxbox/gdtogd/download/accounts/01.json
+root_folder_id = root 
+
+
+
+[zd]
+type = drive  
+scope = drive  
+service_account_file = /home/boxbox/gdtogd/download/accounts/02.json
+root_folder_id = root 
+
+[sed]
+type = drive  
+scope = drive  
+service_account_file = /home/boxbox/gdtogd/download/accounts/03.json
+root_folder_id = root
+
+[dla]
+type = drive  
+scope = drive  
+service_account_file = /home/boxbox/gdtogd/download/accounts/04.json
+root_folder_id = root
+
+[dlb]
+type = drive  
+scope = drive  
+service_account_file = /home/boxbox/gdtogd/download/accounts/05.json
+root_folder_id = root
+
+[dlc]
+type = drive  
+scope = drive  
+service_account_file = /home/boxbox/gdtogd/download/accounts/06.json
+root_folder_id = root
+
+[dld]
+type = drive  
+scope = drive  
+service_account_file = /home/boxbox/gdtogd/download/accounts/07.json
+root_folder_id = root
+
+[dle]
+type = drive  
+scope = drive  
+service_account_file = /home/boxbox/gdtogd/download/accounts/08.json
+root_folder_id = root
+
+[dlf]
+type = drive  
+scope = drive  
+service_account_file = /home/boxbox/gdtogd/download/accounts/09.json
+root_folder_id = root
+
+[dlg]
+type = drive  
+scope = drive  
+service_account_file = /home/boxbox/gdtogd/download/accounts/10.json
+root_folder_id = root
