@@ -1,0 +1,2 @@
+#!/bin/bash
+cat /home/boxbox/logs_bdmv/main.log
