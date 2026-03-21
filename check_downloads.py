@@ -57,17 +57,17 @@ def check_directory_structure(target_dir):
     Returns:
         dict: 包含所有统计结果的字典
     """
-    # 初始化统计变量（新增了同时包含BDMV和ISO的统计项）
+    # 初始化统计变量（新增iso_count相关字段）
     stats = {
         "total_subfolders": 0,          # 一级子文件夹总数
         "has_bdmv": 0,                  # 包含BDMV文件夹的子文件夹数
         "has_iso": 0,                   # 包含ISO文件的子文件夹数
         "no_iso": 0,                    # 不包含ISO文件的子文件夹数
-        "has_both_bdmv_iso": 0,         # 同时包含BDMV和ISO的子文件夹数（新增）
+        "has_both_bdmv_iso": 0,         # 同时包含BDMV和ISO的子文件夹数
         "folders_with_bdmv": [],        # 包含BDMV的文件夹列表
-        "folders_with_iso": [],         # 包含ISO的文件夹列表（元组：(路径, 大小)）
-        "folders_without_iso": [],      # 不包含ISO的文件夹列表
-        "folders_with_both": []         # 同时包含BDMV和ISO的文件夹列表（新增，元组：(路径, 大小)）
+        "folders_with_iso": [],         # 包含ISO的文件夹列表（元组：(路径, ISO数量, 大小)）
+        "folders_without_iso": [],      # 不包含ISO文件的文件夹列表
+        "folders_with_both": []         # 同时包含BDMV和ISO的文件夹列表（元组：(路径, ISO数量, 大小)）
     }
     
     # 验证目标目录是否存在
@@ -96,21 +96,23 @@ def check_directory_structure(target_dir):
             if bdmv_found:
                 stats["has_bdmv"] += 1
             
-            # 检查是否包含ISO文件（递归查找）
+            # 检查是否包含ISO文件（递归查找），并统计数量
             iso_found = False
+            iso_count = 0  # 新增：统计ISO文件数量
             folder_size = 0  # 初始化文件夹大小
+            
+            # 遍历所有文件统计ISO数量
             for root, dirs, files in os.walk(folder_path):
                 for file in files:
                     if file.lower().endswith('.iso'):
                         iso_found = True
-                        # 计算文件夹大小
-                        folder_size = get_folder_size(folder_path)
-                        stats["folders_with_iso"].append((folder_path, folder_size))
-                        break
-                if iso_found:
-                    break
+                        iso_count += 1  # 累计ISO数量
             
+            # 如果找到ISO文件，计算文件夹大小
             if iso_found:
+                folder_size = get_folder_size(folder_path)
+                # 存储路径、ISO数量、大小
+                stats["folders_with_iso"].append((folder_path, iso_count, folder_size))
                 stats["has_iso"] += 1
             else:
                 stats["no_iso"] += 1
@@ -119,7 +121,7 @@ def check_directory_structure(target_dir):
             # 新增：检查是否同时包含BDMV和ISO
             if bdmv_found and iso_found:
                 stats["has_both_bdmv_iso"] += 1
-                stats["folders_with_both"].append((folder_path, folder_size))
+                stats["folders_with_both"].append((folder_path, iso_count, folder_size))
                 
     except PermissionError:
         print(f"错误：没有权限访问目录 {target_dir}")
@@ -129,15 +131,15 @@ def check_directory_structure(target_dir):
         return None
     
     # 对包含ISO的文件夹按大小排序（由小到大）
-    stats["folders_with_iso"].sort(key=lambda x: x[1])
-    # 对同时包含BDMV和ISO的文件夹按大小排序（新增）
-    stats["folders_with_both"].sort(key=lambda x: x[1])
+    stats["folders_with_iso"].sort(key=lambda x: x[2])
+    # 对同时包含BDMV和ISO的文件夹按大小排序
+    stats["folders_with_both"].sort(key=lambda x: x[2])
     
     return stats
 
 def display_results(stats, target_dir):
     """
-    格式化显示统计结果（调整了统计数字的显示顺序）
+    格式化显示统计结果（新增ISO数量显示）
     """
     if not stats:
         return
@@ -146,8 +148,13 @@ def display_results(stats, target_dir):
     print("目录结构检查结果")
     print("=" * 80)
     print(f"目标目录: {target_dir}")
+    print(f"\n1. 一级子文件夹总数: {stats['total_subfolders']}")
+    print(f"2. 包含BDMV文件夹的子文件夹数: {stats['has_bdmv']}")
+    print(f"3. 包含ISO文件的子文件夹数: {stats['has_iso']}")
+    print(f"4. 不包含ISO文件的子文件夹数: {stats['no_iso']}")
+    print(f"5. 同时包含BDMV文件夹和ISO文件的子文件夹数: {stats['has_both_bdmv_iso']}")
     
-    # 显示详细列表（移到统计数字前面）
+    # 显示详细列表（可选）
     print("\n" + "-" * 80)
     print("详细信息:")
     print("-" * 80)
@@ -161,18 +168,19 @@ def display_results(stats, target_dir):
     
     if stats["folders_with_iso"]:
         print("\n包含ISO文件的目录（按大小由小到大排序）:")
-        for idx, (folder, size) in enumerate(stats["folders_with_iso"], 1):
+        for idx, (folder, iso_count, size) in enumerate(stats["folders_with_iso"], 1):
             formatted_size = format_size(size)
-            print(f"  {idx}. {folder} (大小: {formatted_size})")
+            # 显示ISO数量和总大小
+            print(f"  {idx}. {folder} (含 {iso_count} 个ISO文件, 总大小: {formatted_size})")
     else:
         print("\n没有找到包含ISO文件的目录")
     
     # 显示同时包含BDMV和ISO的目录
     if stats["folders_with_both"]:
         print("\n同时包含BDMV文件夹和ISO文件的目录（按大小由小到大排序）:")
-        for idx, (folder, size) in enumerate(stats["folders_with_both"], 1):
+        for idx, (folder, iso_count, size) in enumerate(stats["folders_with_both"], 1):
             formatted_size = format_size(size)
-            print(f"  {idx}. {folder} (大小: {formatted_size})")
+            print(f"  {idx}. {folder} (含 {iso_count} 个ISO文件, 总大小: {formatted_size})")
     else:
         print("\n没有找到同时包含BDMV文件夹和ISO文件的目录")
     
@@ -182,16 +190,6 @@ def display_results(stats, target_dir):
             print(f"  - {folder}")
     else:
         print("\n所有目录都包含ISO文件")
-    
-    # 把5项统计数字移到最后显示
-    print("\n" + "-" * 80)
-    print("统计汇总:")
-    print("-" * 80)
-    print(f"1. 一级子文件夹总数: {stats['total_subfolders']}")
-    print(f"2. 包含BDMV文件夹的子文件夹数: {stats['has_bdmv']}")
-    print(f"3. 包含ISO文件的子文件夹数: {stats['has_iso']}")
-    print(f"4. 不包含ISO文件的子文件夹数: {stats['no_iso']}")
-    print(f"5. 同时包含BDMV文件夹和ISO文件的子文件夹数: {stats['has_both_bdmv_iso']}") 
     
     print("\n" + "=" * 80)
 
